@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v4.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v5 · сбор ссылок на темы.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -9,8 +9,8 @@
   const SECTIONS = [5,8,9,17,18,19,22];
   const CAT = {personal:'Личные эпизоды',plot:'Сюжетные эпизоды',alternative:'Альтернативные эпизоды'};
   const STATUS = {ongoing:'В процессе',finished:'Закрыт',abandoned:'Заброшен'};
-  const MAX_SEARCH_PAGES = 250;
-  const MAX_EPISODES = 1500;
+  const MAX_SEARCH_PAGES = 350;
+  const MAX_EPISODES = 2500;
   const STORAGE_KEY = 'safe-space-chronology-v2-';
   const LEGACY_KEY = 'safe-space-chronology-v1-';
   const VIEW = {timeline:'Хронология',alternative:'Альтернатива',unfinished:'Незавершённые'};
@@ -171,42 +171,59 @@
     if(/не имеете прав для доступа|необходимо войти|доступ запрещен/i.test(access))throw new Error('Форум не даёт доступ к '+url.pathname+'. Войдите под аккаунтом с доступом к разделу.');
     return {doc, finalUrl:response.url};
   }
-  function searchLinks(doc, userId) {
-    const main=doc.querySelector('#pun-main')||doc;
-    const selectors=[
-      '#pun-searchposts .post h3 a[href*="viewtopic.php"]',
-      '#pun-searchtopics .tclcon h3 a[href*="viewtopic.php"]',
-      '.tclcon h3 a[href*="viewtopic.php"]',
-      '.post h3 a[href*="viewtopic.php"]',
-      'a.topictitle[href*="viewtopic.php"]',
-      'div.blocktable tr td.tcl a[href*="viewtopic.php"]',
-      '.postlink a[href*="viewtopic.php"]'
-    ];
-    let all=selectors.flatMap(q=>select(main,q));
-    if(!all.length){all=select(main,'a[href*="viewtopic.php"]');}
-    const topics=new Map(),pids=new Set();
-    for(const a of all){
-      if(a.closest('#pun-crumbs1,#pun-crumbs2,.crumbs,.paging,.pagelink,.pagepost'))continue;
-      let u;try{u=new URL(a.href,forumUrl('/'));}catch(e){continue;}
-      if(!u.pathname.endsWith('/viewtopic.php')||u.hostname!==HOST)continue;
-      const id=topicId(u.href);
-      const title=getText(a).replace(/^#\d+\s*/,'');
-      if(id){const prev=topics.get(id);if(!prev||title.length>prev.title.length)topics.set(id,{id,title});}
-      else if(/^\d+$/.test(u.searchParams.get('pid')||''))pids.add(u.href);
-    }
-    const pages=new Set();
-    select(main,'.paging a[href],.pagelink a[href],a[rel="next"][href],.pagelink,.paging').forEach(a=>{
-      const href=a.getAttribute('href');if(!href)return;
-      try{
-        const u=new URL(href,forumUrl('/'));
-        if(!u.pathname.endsWith('/search.php')||u.hostname!==HOST)return;
-        const aid=u.searchParams.get('user_id');
-        if(aid&&aid!==String(userId))return;
-        if(u.searchParams.get('action') && !/^show_user_posts$/.test(u.searchParams.get('action')))return;
-        pages.add(u.href);
-      }catch(e){}
+  // Search pages on RusFF can link to a topic via ?id=, or only to a post via ?pid=.
+  // Never treat ?pid as a topic id. Deduplicate all links before opening episodes.
+  function searchLinks(doc, userId, mode) {
+    const scope=doc.querySelector('#pun-searchposts, #pun-searchtopics, #pun-main')||doc;
+    const topics=new Map(),pids=new Map(),pages=new Set();
+    const add=(a)=>{
+      let u;try{u=new URL(a.getAttribute('href')||'',forumUrl('/'));}catch(e){return;}
+      if(u.hostname!==HOST || !/\/viewtopic\.php$/i.test(u.pathname))return;
+      const id=u.searchParams.get('id'),pid=u.searchParams.get('pid');
+      const row=a.closest('.post, .tclcon, .post-entry, .topic, tr, li, .container')||a.parentElement;
+      const subject=row?.querySelector('h3 a[href*="viewtopic.php"],.topictitle,.tclcon a[href*="viewtopic.php"],h3')||a;
+      let title=normalize(getText(subject)).replace(/^#\d+\s*/,'');
+      if(/^(?:последнее сообщение|новое|читать|перейти|\d+|ссылка|\u00bb|\u2192)$/i.test(title))title='';
+      if(id && /^\d+$/.test(id)){
+        const prev=topics.get(id);
+        if(!prev||title.length>prev.title.length)topics.set(id,{id,title});
+      }else if(pid && /^\d+$/.test(pid)){
+        if(!pids.has(pid))pids.set(pid,{pid,url:u.href,title});
+      }
+    };
+    select(scope,'a[href*="viewtopic.php"]').forEach(a=>{
+      if(a.closest('#pun-crumbs1,#pun-crumbs2,.crumbs,#pun-pagelinks,.paging,.pagelink'))return;
+      add(a);
     });
-    return {topics,pids:[...pids],pages:[...pages]};
+    // Search pagination may live OUTSIDE #pun-main, including #pun-pagelinks.
+    select(doc,'#pun-pagelinks a[href], .pagelink a[href], .paging a[href], #pun-searchposts a[rel="next"], #pun-searchtopics a[rel="next"], a[href*="search.php"][href*="p="]').forEach(a=>{
+      let u;try{u=new URL(a.href,forumUrl('/'));}catch(e){return;}
+      if(u.hostname!==HOST|| !/\/search\.php$/i.test(u.pathname))return;
+      const action=u.searchParams.get('action');
+      if(action && action!==(mode||'show_user_posts') && !(mode==='search'&&action==='search'))return;
+      const uid=u.searchParams.get('user_id');if(uid&&uid!==String(userId))return;
+      pages.add(u.href);
+    });
+    return {topics,pids,pages};
+  }
+  // A ?pid page often renders the topic while keeping ?pid in the address bar.
+  // response.url alone is therefore NOT a reliable way to find the topic id.
+  function episodeIdFromPage(doc, finalUrl) {
+    const direct=topicId(finalUrl);if(direct)return direct;
+    const candidates=[
+      doc.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+      doc.querySelector('meta[property="og:url"]')?.getAttribute('content'),
+      doc.querySelector('meta[name="twitter:url"]')?.getAttribute('content')
+    ];
+    for(const value of candidates){const id=topicId(value||'');if(id)return id;}
+    const fromForm=doc.querySelector('form[action*="post.php"][action*="tid="]')?.getAttribute('action')||'';
+    try{const tid=new URL(fromForm,forumUrl('/')).searchParams.get('tid');if(/^\d+$/.test(tid||''))return tid;}catch(e){}
+    for(const a of select(doc,'#pun-viewtopic .pagelink a[href*="viewtopic.php"], #pun-viewtopic .postlink a[href*="viewtopic.php"], .linkst a[href*="viewtopic.php"], .linksb a[href*="viewtopic.php"], a[href*="viewtopic.php?id="]')){
+      const id=topicId(a.href);if(id)return id;
+    }
+    const html=doc.documentElement?.innerHTML||'';
+    const m=html.match(/\b(?:TopicID|topic_id|topicId)\s*[:=]\s*['"]?(\d{1,10})\b/);
+    return m?m[1]:null;
   }
   let states={id:'',items:[],status:'Готово к сбору',scanning:false,errors:[],name:'',log:'',showExport:false,filter:'',profile:null};
   const css=`
@@ -299,8 +316,8 @@
   `;
   const style=document.createElement('style');style.textContent=css; document.head.appendChild(style);
   const overlay=document.createElement('div');overlay.id='ssc-overlay';overlay.innerHTML=`<div class="ssc-shell" role="dialog" aria-modal="true" aria-label="Хронология персонажа">
-    <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Все эпизоды по игровой дате · три последовательных раздела · оформление для форума</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
-      <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">Собрать эпизоды</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
+    <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Сбор ссылок на эпизоды по ID персонажа · без скачивания всех постов · готовый HTML</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
+      <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">Найти ссылки на эпизоды</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><button id="ssc-verify" class="ssc-btn" type="button" title="Открыть поиск сообщений этого ID на RusFF">Проверить поиск</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
     <details class="ssc-settings" id="ssc-settings"><summary>Настройка привязки форумных разделов (5, 8, 9, 17, 18, 19, 22)</summary><div class="ssc-section-rules" id="ssc-section-rules">Названия разделов появятся после проверки доступа.</div></details>
     <div class="ssc-content"><div class="ssc-board" id="ssc-board"></div></div>
@@ -470,7 +487,7 @@
     return map;
   }
   async function resolvePid(link){
-    try{const {finalUrl}=await getPage(link);return topicId(finalUrl);}catch(e){return null;}
+    try{const {doc,finalUrl}=await getPage(link);return episodeIdFromPage(doc,finalUrl);}catch(e){return null;}
   }
   async function scan(){
     const id=String(byId('ssc-user').value||'').trim();
@@ -484,37 +501,78 @@
       showStatus('Проверка доступа и разделов…');
       const sections=await loadSectionMap();
       states.name=await loadProfile(id);render();
-      showStatus('Поиск сообщений персонажа…');
-      const queue=[forumUrl('/search.php?action=show_user_posts&user_id='+encodeURIComponent(id))],visited=new Set(),found=new Map(),unresolved=new Set();
-      let pageCount=0,searchError='';
-      while(queue.length&&pageCount<MAX_SEARCH_PAGES){
-        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-        const url=queue.shift();if(visited.has(url))continue;visited.add(url);
-        let result;
-        try{result=await getPage(url);}catch(e){searchError=e.message;break;}
-        const x=searchLinks(result.doc,id);pageCount++;
-        x.topics.forEach((v,k)=>found.set(k,v));x.pids.forEach(url=>unresolved.add(url));
-        x.pages.forEach(url=>{if(!visited.has(url)&&!queue.includes(url))queue.push(url);});
-        showStatus(`Поиск: страниц ${pageCount}, тем ${found.size}, ссылок на посты ${unresolved.size}…`);
-        await pause(130);
-      }
-      if(pageCount===MAX_SEARCH_PAGES)states.errors.push('Лимит '+MAX_SEARCH_PAGES+' страниц поиска достигнут. Выборка может быть неполной.');
-      if(searchError)states.errors.push('Поиск прерван: '+searchError);
-      if(!pageCount)throw new Error(searchError||'Не удалось открыть поиск по пользователю.');
-      if(unresolved.size){
-        // Rusff may return a mixture of topic and post links; resolve both.
-        for(const pid of unresolved){
+      showStatus('Ищу ссылки на игровые темы по ID игрока…');
+      const visited=new Set(),found=new Map(),unresolved=new Map();
+      let pageCount=0,searchError='',searchDiagnostics=[];
+      // RusFF search can return results as TOPICS by author, so one episode has
+      // just one result even when the player wrote dozens of posts in it.
+      // Fall back to the numeric-ID searches only if that fast search has no result.
+      const author=normalize(states.name||'').replace(/^профиль(?: пользователя)?\s*[:—–-]\s*/i,'');
+      if(author && author.length<65 && !/^(?:профиль|информация|пользователь)$/i.test(author)){
+        const params=new URLSearchParams({action:'search',author,search_in:'all',sort_by:'0',sort_dir:'DESC',show_as:'topics'});
+        SECTIONS.forEach(n=>params.append('forums[]',String(n)));
+        const fastQueue=[forumUrl('/search.php?'+params.toString())];
+        while(fastQueue.length&&pageCount<MAX_SEARCH_PAGES){
           if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-          if(found.size>=MAX_EPISODES)break;
-          const topic=await resolvePid(pid);if(topic&&!found.has(topic))found.set(topic,{id:topic,title:''});
-          await pause(130);
+          const url=fastQueue.shift();if(visited.has(url))continue;visited.add(url);
+          let result;try{result=await getPage(url);}catch(e){searchDiagnostics.push('Поиск по имени: '+e.message);break;}
+          const x=searchLinks(result.doc,id,'search');
+          x.topics.forEach((v,k)=>found.set(k,v));
+          x.pages.forEach(u=>{if(!visited.has(u)&&!fastQueue.includes(u))fastQueue.push(u);});
+          pageCount++;
+          showStatus(`Поиск эпизодов игрока ${author}: ${found.size} уникальных тем…`);
+          await pause(110);
+        }
+        searchDiagnostics.push('Поиск по автору: '+found.size+' разных тем');
+      }
+      // Backward-compatible ID search. Useful when the author search is disabled.
+      for(const mode of (found.size?[]:['show_user_posts','show_user_topics'])){
+        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+        let queue=[forumUrl('/search.php?action='+mode+'&user_id='+encodeURIComponent(id))];
+        let modePages=0;
+        while(queue.length&&pageCount<MAX_SEARCH_PAGES){
+          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+          const url=queue.shift();if(visited.has(url))continue;visited.add(url);
+          let result;
+          try{result=await getPage(url);}catch(e){searchError=e.message;searchDiagnostics.push(mode+': '+e.message);break;}
+          const x=searchLinks(result.doc,id,mode);
+          pageCount++;modePages++;
+          x.topics.forEach((v,k)=>{const old=found.get(k);if(!old||v.title.length>old.title.length)found.set(k,v);});
+          x.pids.forEach((v,k)=>{if(!unresolved.has(k))unresolved.set(k,v);});
+          x.pages.forEach(u=>{if(!visited.has(u)&&!queue.includes(u))queue.push(u);});
+          if(modePages===1)searchDiagnostics.push(mode+': прямых ссылок '+x.topics.size+', ссылок на посты '+x.pids.size+', страниц поиска '+x.pages.size);
+          showStatus(`Поиск ссылок: ${pageCount} стр. · ${found.size} тем · ${unresolved.size} ссылок на сообщения`);
+          await pause(110);
         }
       }
+      if(pageCount===MAX_SEARCH_PAGES)states.errors.push('Лимит '+MAX_SEARCH_PAGES+' страниц поиска достигнут; возможно, выборка неполная.');
+      if(searchError)states.errors.push('Проблема со страницей поиска: '+searchError);
+      if(!pageCount)throw new Error(searchError||'Не удалось открыть поиск по пользователю.');
+      if(unresolved.size){
+        // Resolve only links that could not already be attributed to a topic.
+        // ONE unique ?pid page can be enough; do not download every post of an episode.
+        let processed=0,bad=0;
+        const total=unresolved.size;
+        for(const info of unresolved.values()){
+          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+          if(found.size>=MAX_EPISODES)break;
+          const topic=await resolvePid(info.url);
+          processed++;
+          if(topic){if(!found.has(topic))found.set(topic,{id:topic,title:info.title||''});}
+          else bad++;
+          if(processed%5===0||processed===total)showStatus(`Преобразую ссылки на сообщения в темы: ${processed}/${total} · найдено ${found.size} тем`);
+          await pause(70);
+        }
+        if(bad)states.errors.push('Не удалось распознать '+bad+' ссылок вида ?pid=…; часть эпизодов может отсутствовать.');
+      }
       if(!found.size){
-        showStatus('Поиск не вернул тем. Возможно, у персонажа нет сообщений или поиск недоступен.');
+        const url=forumUrl('/search.php?action=show_user_posts&user_id='+encodeURIComponent(id));
+        showStatus('Не обнаружено ни одной темы. Проверьте ID и доступ. Ссылка для проверки поиска: '+url);
+        states.errors.push(...searchDiagnostics);
+        console.warn('SAFE SPACE chronology search diagnostic:',searchDiagnostics);
         return;
       }
-      showStatus(`Найдено ${found.size} тем. Читаю шапки эпизодов…`);
+      showStatus(`Найдено ${found.size} разных тем. Проверяю разделы и читаю только первые страницы…`);
       let checked=0, matched=0,failed=0;
       for(const [topic,v] of found){
         if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
@@ -529,14 +587,8 @@
           if(ep.categoryUncertain&&s?.category){ep.category=s.category;ep.categoryUncertain=false;}
           if(ep.statusUncertain&&s?.status){ep.status=s.status;ep.statusUncertain=false;}
           if(s?.view){ep.view=s.view;ep.viewUncertain=false;}
-          // Add participant names from the last page for multi-page threads.
-          if(ep.pages>1&&ep.participantsSource.startsWith('Авторы')){
-            try{
-              const last=await getPage('/viewtopic.php?id='+topic+'&p='+ep.pages);
-              const authors=[...new Set([...ep.authors,...parseAuthors(last.doc)])];
-              ep.participants=authors.join(', ');ep.authors=authors;
-            }catch(e){}
-          }
+          // Only one page per TOPIC. Do not download remaining posts.
+          // If no participant list exists in the header, show first-page authors as an estimate.
           // Manual fields survive rescanning.
           const old=overrides.get(String(topic));
           if(old){
@@ -590,6 +642,11 @@
   overlay.addEventListener('click',e=>{if(e.target===overlay&&!isTargetTopic)overlay.classList.remove('is-open');});
   byId('ssc-user').addEventListener('change',e=>{if(/^\d+$/.test(e.target.value)&&!states.scanning)restore(e.target.value);});
   byId('ssc-scan').addEventListener('click',scan);
+  byId('ssc-verify').addEventListener('click',()=>{
+    const id=String(byId('ssc-user').value||'').trim();
+    if(!/^\d{1,12}$/.test(id)){showStatus('Сначала укажите числовой ID профиля.');return;}
+    window.open(forumUrl('/search.php?action=show_user_posts&user_id='+encodeURIComponent(id)),'_blank','noopener');
+  });
   byId('ssc-stop').addEventListener('click',()=>controller?.abort());
   byId('ssc-filter').addEventListener('input',e=>{states.filter=e.target.value;render();});
   byId('ssc-add').addEventListener('click',()=>edit(null));
