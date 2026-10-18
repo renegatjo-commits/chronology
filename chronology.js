@@ -1,13 +1,26 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v6 · двухэтапный сбор без потери ссылок.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v8 · фиксированная классификация 7 игровых разделов.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
 (function () {
   'use strict';
   const HOST = 'safespace.rusff.me';
+  // Explicit rules approved for Safe Space. All checks are made against the
+  // actual leaf forum from the topic breadcrumb, not matching words in a title.
   const ROOTS = {5:'plot',8:'personal',9:'alternative'};
-  const SECTIONS = [5,8,9,17,18,19,22];
-  const CAT = {personal:'Личные эпизоды',plot:'Сюжетные эпизоды',alternative:'Альтернативные эпизоды'};
+  const SECTION_RULES = Object.freeze({
+    5:  {category:'plot',        view:'timeline',    status:'ongoing'},
+    8:  {category:'personal',    view:'timeline',    status:'ongoing'},
+    9:  {category:'alternative', view:'alternative', status:'ongoing'},
+    17: {category:'plot',        view:'timeline',    status:'finished'},
+    18: {category:'personal',    view:'timeline',    status:'finished'},
+    19: {category:'alternative', view:'alternative', status:'finished'},
+    22: {category:'archived',    view:'unfinished',  status:'abandoned'}
+  });
+  const SECTIONS = Object.keys(SECTION_RULES).map(Number);
+  const DEFAULT_SECTION_VIEW = Object.fromEntries(SECTIONS.map(n=>[n,SECTION_RULES[n].view]));
+  const defaultStatus = id => SECTION_RULES[Number(id)]?.status || 'unknown';
+  const CAT = {personal:'Личные эпизоды',plot:'Сюжетные эпизоды',alternative:'Альтернативные эпизоды',archived:'Заброшенные эпизоды'};
   const STATUS = {unknown:'Не определён',ongoing:'В процессе',finished:'Закрыт',abandoned:'Заброшен'};
   const MAX_SEARCH_PAGES = 350;
   const MAX_EPISODES = 2500;
@@ -90,6 +103,33 @@
     const unique=new Map();nodes.forEach(a=>{const id=forumId(a.href);if(id)unique.set(id,getText(a));});
     return [...unique].map(([id,label])=>({id,label}));
   }
+  function exactGameSection(doc) {
+    const crumbs=getCrumbs(doc);
+    const last=crumbs[crumbs.length-1];
+    return last && SECTIONS.includes(Number(last.id)) ? last : null;
+  }
+  function viewForSection(id) { return SECTION_RULES[Number(id)]?.view || 'timeline'; }
+  function categoryForSection(id,crumbs) {
+    // For archives with nested parent forum, honor the parent category if shown.
+    // Fallback uses the explicit mapping, never the forum heading's wording.
+    const n=Number(id);
+    if(n===19 || n===9)return 'alternative';
+    if(n===22)return 'archived';
+    const parent=(crumbs||[]).filter(x=>ROOTS[x.id]).map(x=>ROOTS[x.id])[0];
+    return parent || SECTION_RULES[n]?.category || 'personal';
+  }
+  function correctedEpisode(x) {
+    const section=SECTION_RULES[Number(x.sectionId)];
+    if(x.manual===true || !section)return x;
+    x.status=section.status;
+    x.statusUncertain=false;
+    // Old versions had #19 in the main chronology and #22 as 'ongoing'.
+    // Do not inherit invalid group defaults, but preserve individual drags.
+    if(!x.override?.view)x.view=section.view;
+    x.category=categoryForSection(x.sectionId, []);
+    if(x.override){delete x.override.status;delete x.override.category;}
+    return x;
+  }
   function parseAuthors(doc) {
     const authors=new Map();
     select(doc,'#pun-viewtopic .post, #pun-main .post').forEach(post=>{
@@ -130,27 +170,25 @@
   }
   function parseEpisode(doc,id,sectionInfo,fromSearch) {
     const crumbs=getCrumbs(doc);
+    const section=exactGameSection(doc);
+    if(!section)throw new Error('Эпизод больше не находится в 7 игровых разделах');
     const label=crumbs.map(x=>x.label).join(' · ');
-    const roots=crumbs.filter(x=>ROOTS[x.id]);
-    const section=crumbs.filter(x=>SECTIONS.includes(x.id)).at(-1) || sectionInfo || {id:0,label:'Неизвестный раздел'};
     const firstText=findPostContent(doc);
     const title=topicTitle(doc,fromSearch?.title);
-    let category=roots.length?ROOTS[roots[0].id]:ROOTS[section.id]||categoryFor(label+' '+section.label);
-    if(!category)category=fromSearch?.category || 'personal';
-    const explicit = String(title).match(/\[(?:завершено|завершен|закрыто|закрыт|заброшено|заброшен|в процессе)\]/i);
-    const metaStatus = (String(firstText).split(/\n/).slice(0,16).map(normalize).find(l=>/^(?:статус|status)\s*[:—–-]/i.test(l))||'');
-    const inferred = statusFor(metaStatus) || statusFor(explicit?.[0]||'') || statusFor(label+' '+section.label);
-    const status=inferred||'unknown';
-    const view=sectionInfo?.view || (isUnfinished(label+' '+section.label)?'unfinished':category==='alternative'?'alternative':'timeline');
+    const roots=crumbs.filter(x=>ROOTS[x.id]);
+    const category=categoryForSection(section.id,crumbs);
     const date=extractDate(firstText,title);
     const authors=parseAuthors(doc);
     const participant=extractParticipants(firstText,title,authors);
     return {
-      id:String(id),title,url:topicURL(id),category,view,status,date:date.date,dateKey:date.dateKey,detailLoaded:true,reviewOnly:false,
-      participants:participant.participants,participantsSource:participant.source,
-      sectionId:section.id,sectionName:section.label, statusUncertain:!inferred,viewUncertain:!(sectionInfo?.view||isUnfinished(label+' '+section.label)||category==='alternative'||ROOTS[section.id]),
-      dateUncertain:!date.date,categoryUncertain:(!roots.length&&!ROOTS[section.id]&&!categoryFor(label+' '+section.label)),
-      pages:maxPage(doc), authors,override:{}, notes:'', updatedAt:Date.now()
+      id:String(id),title,url:topicURL(id),category,
+      view:viewForSection(section.id),
+      status:defaultStatus(section.id),date:date.date,dateKey:date.dateKey,
+      detailLoaded:true,reviewOnly:false,participants:participant.participants,
+      participantsSource:participant.source,sectionId:section.id,sectionName:section.label,
+      statusUncertain:false,viewUncertain:false,dateUncertain:!date.date,
+      categoryUncertain:false,
+      pages:maxPage(doc),authors,override:{},notes:'',updatedAt:Date.now()
     };
   }
   // Same-origin requests, including cookie authentication. rusff may serve windows-1251.
@@ -317,7 +355,7 @@
   `;
   const stepCSS=`
     #ssc-overlay .ssc-step-note{margin:0 0 14px;padding:11px 13px;border:1px solid #59465d;border-radius:9px;background:#322639;color:#ddcce0;font:12px/1.55 Arial,sans-serif}
-    #ssc-overlay .ssc-review{margin:15px 0 4px;border:1px solid #8a655a;border-radius:12px;padding:10px 14px;background:#2d2431}
+    #ssc-overlay .ssc-review{display:none!important}
     #ssc-overlay .ssc-review summary{color:#eac7b4;cursor:pointer;font:13px/1.55 Arial,sans-serif;padding:4px 0}
     #ssc-overlay #ssc-review-list{padding:13px 0 5px}
     #ssc-overlay .ssc-review .ssc-card{border-left-color:#bd865e}
@@ -327,11 +365,11 @@
   `;
   const style=document.createElement('style');style.textContent=css+stepCSS; document.head.appendChild(style);
   const overlay=document.createElement('div');overlay.id='ssc-overlay';overlay.innerHTML=`<div class="ssc-shell" role="dialog" aria-modal="true" aria-label="Хронология персонажа">
-    <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Сначала ищем уникальные ссылки · затем уточняем шапки · готовый HTML</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
+    <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Только 7 игровых разделов · закрыты 17/18/19 · заброшен 22</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
       <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">1. Найти ссылки</button><button id="ssc-enrich" class="ssc-btn" type="button">2. Заполнить данные</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><button id="ssc-verify" class="ssc-btn" type="button" title="Открыть поиск сообщений этого ID на RusFF">Проверить поиск</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
-    <details class="ssc-settings" id="ssc-settings"><summary>Настройка привязки форумных разделов (5, 8, 9, 17, 18, 19, 22)</summary><div class="ssc-section-rules" id="ssc-section-rules">Названия разделов появятся после проверки доступа.</div></details>
-    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сохраняет ссылки сразу. Шаг 2 проверяет игровые разделы и берёт даты, участников и статусы из первых сообщений. Ссылки без распознанной шапки не исчезают.</p><div class="ssc-board" id="ssc-board"></div><details class="ssc-review" id="ssc-review"><summary>На проверку: <span id="ssc-review-count">0</span> тем · не войдут в HTML, пока не переместите</summary><div id="ssc-review-list" class="ssc-list"></div></details></div>
+    <div class="ssc-legend" id="ssc-settings">#5, #8 — в процессе · #9 — альтернатива · #17, #18 — закрыты · #19 — закрытая альтернатива · #22 — заброшены</div><div id="ssc-section-rules" hidden></div>
+    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 находит ссылки по ID и проверяет каждую тему: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Ошибка чтения шапки не удаляет подтверждённую ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
     <div class="ssc-export" id="ssc-export"><div class="ssc-exportrow"><strong>Код для форумного сообщения</strong><label>Оформление <select id="ssc-theme"><option value="night">Ночная сирень</option><option value="parchment">Старинный пергамент</option></select></label><label style="display:flex;align-items:center;gap:4px"><input id="ssc-html-tags" type="checkbox" checked> Добавить [html][/html]</label><button id="ssc-copy" type="button" class="ssc-btn ssc-primary">Копировать HTML</button><button id="ssc-download-html" type="button" class="ssc-btn">Скачать HTML</button></div><p class="ssc-exporthint">Финальный блок статичен: его можно вставить в сообщение и он будет работать без скрипта конструктора. Кнопки редактирования в пост не попадают.</p><textarea id="ssc-out" readonly></textarea><div class="ssc-preview" id="ssc-preview"></div></div>
     <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
     <div class="ssc-editor" id="ssc-editor"><form class="ssc-editbox" id="ssc-form"><h3 id="ssc-form-title">Эпизод</h3><div class="ssc-fields">
@@ -339,7 +377,7 @@
       <label class="ssc-field ssc-full">Ссылка на тему<input name="url" placeholder="https://safespace.rusff.me/viewtopic.php?id=…"></label>
       <label class="ssc-field">Игровая дата<input name="date" placeholder="Например: 15 ноября 1979"></label>
       <label class="ssc-field">В какую строку поместить<select name="view"><option value="timeline">Хронология</option><option value="alternative">Альтернатива</option><option value="unfinished">Незавершённые</option></select></label>
-      <label class="ssc-field">Тип эпизода<select name="category"><option value="personal">Личный</option><option value="plot">Сюжетный</option><option value="alternative">Альтернативный</option></select></label>
+      <label class="ssc-field">Тип эпизода<select name="category"><option value="personal">Личный</option><option value="plot">Сюжетный</option><option value="alternative">Альтернативный</option><option value="archived">Заброшенный</option></select></label>
       <label class="ssc-field">Статус<select name="status"><option value="unknown">Не определён</option><option value="ongoing">В процессе</option><option value="finished">Закрыт</option><option value="abandoned">Заброшен</option></select></label>
       <label class="ssc-field ssc-full">Участники<input name="participants" placeholder="Имена через запятую"></label>
       <label class="ssc-field ssc-full">Примечание<textarea name="notes" rows="2" placeholder="Необязательно"></textarea></label>
@@ -372,6 +410,7 @@
   const byId=id=>overlay.querySelector('#'+id);
   const storageKey=id=>STORAGE_KEY+id;
   const effectiveView=x=>VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline');
+  const validSavedItem=x=>x&&x.id!=null&&CAT[x.category]&&(x.manual===true || (SECTIONS.includes(Number(x.sectionId)) && /^\d+$/.test(String(x.id))));
   const sortItems=a=>a.sort((x,y)=>(x.dateKey||'9999').localeCompare(y.dateKey||'9999') || String(x.title||'').localeCompare(String(y.title||''),'ru'));
   function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme}));}catch(e){showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
   function restore(id){
@@ -380,10 +419,11 @@
       const raw=localStorage.getItem(storageKey(states.id))||localStorage.getItem(LEGACY_KEY+states.id)||'null';
       const data=JSON.parse(raw);
       if(data&&Array.isArray(data.items)){
-        states.items=data.items.filter(x=>x&&x.id!=null&&CAT[x.category]).map(x=>({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:x.override||{},status:STATUS[x.status]?x.status:'unknown',dateKey:dateInfo(x.date).key}));
+        states.items=data.items.filter(validSavedItem).map(x=>correctedEpisode({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:{...(x.override||{})},reviewOnly:false,reviewReason:'',status:STATUS[x.status]?x.status:'ongoing',statusUncertain:false,dateKey:dateInfo(x.date).key}));
         states.name=data.name||'';states.sections=data.sections||{};states.theme=data.theme||'night';
       }
     }catch(e){}
+    states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...states.sections[n],...SECTION_RULES[n],id:n}]));
     if(byId('ssc-theme'))byId('ssc-theme').value=states.theme;
     renderSections();render();
   }
@@ -393,7 +433,7 @@
     for(const id of SECTIONS){
       const rule=states.sections?.[id]||{};
       const label=rule.label|| (ROOTS[id]?CAT[ROOTS[id]]:'Раздел '+id);
-      const value=rule.view||((id===9)?'alternative':'timeline');
+      const value=DEFAULT_SECTION_VIEW[id];
       lines.push(`<label class="ssc-section-rule">#${id} ${esc(label)} <select data-section-rule="${id}">${Object.entries(VIEW).map(([v,name])=>`<option value="${v}" ${value===v?'selected':''}>${name}</option>`).join('')}</select></label>`);
     }
     byId('ssc-section-rules').innerHTML=lines.join('');
@@ -403,8 +443,8 @@
     const card=(x,view)=>{
       const url=safeURL(x.url||'');
       const type=CAT[x.category]||'Проверьте тип';
-      const flags=[x.dateUncertain?'проверьте дату':'',x.statusUncertain?'проверьте статус':'',x.viewUncertain?'проверьте раздел':'',x.detailsError?'не удалось прочитать шапку':''].filter(Boolean);
-      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span>Участники: ${esc(x.participants||'Не определены')}</div>${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}${x.reviewOnly?`<div class="ssc-review-msg">${esc(x.reviewReason||'Раздел нужно проверить')} — перенесите в нужную строку вручную, если это эпизод.</div>`:''}</div><div class="ssc-card-controls"><select data-field="status" data-id="${esc(x.id)}" title="Статус">${Object.entries(STATUS).map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}</select><select data-field="view" data-id="${esc(x.id)}" title="Переместить в раздел"><option value="review" ${x.reviewOnly?'selected':''}>На проверку</option>${Object.entries(VIEW).map(([v,label])=>`<option value="${v}" ${!x.reviewOnly&&view===v?'selected':''}>${label}</option>`).join('')}</select><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button></div></article>`;
+      const flags=[x.dateUncertain?'проверьте дату':'',x.detailsError?'не удалось прочитать шапку':''].filter(Boolean);
+      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span>Участники: ${esc(x.participants||'Не определены')}</div>${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}</div><div class="ssc-card-controls"><select data-field="status" data-id="${esc(x.id)}" title="${x.manual?'Статус вручную':'Статус определяется разделом форума'}" ${x.manual?'':'disabled'}>${Object.entries(STATUS).map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}</select><select data-field="view" data-id="${esc(x.id)}" title="Переместить в раздел">${Object.entries(VIEW).map(([v,label])=>`<option value="${v}" ${!x.reviewOnly&&view===v?'selected':''}>${label}</option>`).join('')}</select><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button></div></article>`;
     };
     for(const [view,heading] of Object.entries(VIEW)){
       const all=sortItems(states.items.filter(x=>!x.reviewOnly&&effectiveView(x)===view));
@@ -415,11 +455,7 @@
       html+='</div></section>';
     }
     byId('ssc-board').innerHTML=html;
-    const allReview=states.items.filter(x=>x.reviewOnly);
-    const review=allReview.filter(x=>!t||[x.title,x.participants,x.date,x.notes].join(' ').toLowerCase().includes(t));
-    byId('ssc-review-count').textContent=allReview.length;
-    byId('ssc-review-list').innerHTML=review.length?review.map(x=>card(x,effectiveView(x))).join(''):'<div class="ssc-empty">Нет тем на проверку</div>';
-    byId('ssc-stat').textContent=`${states.items.length} ссылок · ${(states.items.filter(x=>!x.reviewOnly)).length} в хронологии · ${allReview.length} на проверку${states.name?' · '+states.name:''}`;
+    byId('ssc-stat').textContent=`${states.items.length} игровых эпизодов · ${states.items.filter(x=>x.status==='finished').length} закрыто · ${states.items.filter(x=>x.status==='ongoing').length} в процессе${states.name?' · '+states.name:''}`;
     if(byId('ssc-export').classList.contains('is-open'))updateExport();
   }
   function exportHTML(){
@@ -427,7 +463,7 @@
     const cards=(view)=>sortItems(states.items.filter(x=>!x.reviewOnly&&effectiveView(x)===view)).map(x=>{
       const url=safeURL(x.url||'');
       const t=url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<strong>${esc(x.title)}</strong>`;
-      const type=(x.category==='plot'?'сюжет':x.category==='personal'?'личный':'альтернатива');
+      const type=(x.category==='plot'?'сюжет':x.category==='personal'?'личный':x.category==='alternative'?'альтернатива':'заброшенный');
       return `<div class="sscp-line"><div class="sscp-date">${esc(x.date||'дата не указана')}</div><div class="sscp-main"><div class="sscp-title">${t}</div><div class="sscp-players">${esc(x.participants||'Участники не указаны')}</div>${x.notes?`<div class="sscp-note">${esc(x.notes)}</div>`:''}</div><div class="sscp-labels"><span class="sscp-type">${type}</span><span class="sscp-status sscp-${esc(x.status)}">${esc(STATUS[x.status]||STATUS.unknown)}</span></div></div>`;
     }).join('');
     // CSS is scoped. Public output has no interactive code or network requests.
@@ -492,39 +528,47 @@
         const name=getText(doc.querySelector('#pun-viewforum h1, #pun-main h1'))||getText(doc.querySelector('.crumbs strong'))||'Раздел '+id;
         const crumbs=getCrumbs(doc);
         let category=ROOTS[id]||crumbs.map(x=>ROOTS[x.id]).find(Boolean)||categoryFor(name+' '+crumbs.map(x=>x.label).join(' '));
-        const view=states.sections?.[id]?.view || (isUnfinished(name+' '+crumbs.map(x=>x.label).join(' '))?'unfinished':category==='alternative'?'alternative':'timeline');
-        map[id]={id,label:name,category:category||'',view,status:statusFor(name+' '+crumbs.map(x=>x.label).join(' '))};
-      }catch(e){skipped++;map[id]={id,label:'Раздел '+id,category:ROOTS[id]||'',view:states.sections?.[id]?.view||(id===9?'alternative':'timeline'),status:''};}
+        const view=viewForSection(id);
+        map[id]={id,label:name,category:SECTION_RULES[id].category,view,status:defaultStatus(id)};
+      }catch(e){skipped++;map[id]={id,label:'Раздел '+id,category:SECTION_RULES[id].category,view:DEFAULT_SECTION_VIEW[id],status:defaultStatus(id)};}
       await pause(110);
     }
-    for(const id of SECTIONS){const old=states.sections?.[id]||{};states.sections[id]={...map[id],view:old.view||map[id].view};}
+    for(const id of SECTIONS){states.sections[id]=map[id];}
     renderSections();
     if(skipped)states.errors.push('Недоступны разделы: '+skipped+' из 7.');
     return map;
   }
-  async function resolvePid(link){
-    try{const {doc,finalUrl}=await getPage(link);return episodeIdFromPage(doc,finalUrl);}catch(e){return null;}
+  function makeVerifiedItem(id,source,section) {
+    const category=categoryForSection(section.id, []);
+    return {id:String(id),title:normalize(source?.title)||('Эпизод #'+id),
+      url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',
+      category,view:viewForSection(section.id),
+      status:defaultStatus(section.id),dateUncertain:true,statusUncertain:false,
+      categoryUncertain:false,viewUncertain:false,detailLoaded:false,
+      reviewOnly:false,reviewReason:'',sectionId:section.id,sectionName:section.label,
+      notes:'',override:{},authors:[],manual:false};
   }
-  function makeLinkItem(id,source){
-    const known=String(id).startsWith('pid-');
-    return {id:String(id),title:normalize(source?.title)||('Эпизод #'+String(id).replace(/^pid-/,'')),
-      url:source?.url||(known?forumUrl('/viewtopic.php?pid='+String(id).slice(4)):topicURL(id)),
-      date:'',dateKey:'9999-99-99',participants:'',category:'personal',view:'timeline',status:'unknown',
-      dateUncertain:true,statusUncertain:true,categoryUncertain:true,viewUncertain:true,
-      detailLoaded:false,reviewOnly:known,reviewReason:known?'Не удалось определить ID темы из ссылки на сообщение':'',
-      sectionId:0,sectionName:'Не определён',notes:'',override:{},authors:[],manual:false};
-  }
-  function rememberLinks(found){
-    const old=new Map(states.items.map(x=>[String(x.id),x]));let added=0;
+  function rememberVerified(found) {
+    let added=0,updated=0;
+    const old=new Map(states.items.map(x=>[String(x.id),x]));
     for(const [id,source] of found){
-      if(old.has(String(id))){
-        const x=old.get(String(id));
+      const section=source.section;
+      if(!section||!SECTIONS.includes(Number(section.id)))continue;
+      let x=old.get(String(id));
+      if(x){
+        x.sectionId=section.id;x.sectionName=section.label;
+        x.reviewOnly=false;x.reviewReason='';
+        x.status=defaultStatus(section.id);
+        x.category=categoryForSection(section.id, []);
+        if(x.override)delete x.override.status;
+        if(!x.override?.view)x.view=viewForSection(section.id);
         if(!x.override?.title&&x.title.startsWith('Эпизод #')&&source.title)x.title=source.title;
-        continue;
+        updated++;
+      }else{
+        x=makeVerifiedItem(id,source,section);states.items.push(x);old.set(String(id),x);added++;
       }
-      const x=makeLinkItem(id,source);states.items.push(x);old.set(String(id),x);added++;
     }
-    if(added){save();render();}
+    if(added||updated){save();render();}
     return added;
   }
   function metadataFromSearch(doc){
@@ -538,34 +582,29 @@
   async function scan(){
     const id=String(byId('ssc-user').value||'').trim();
     if(!/^\d{1,12}$/.test(id)||Number(id)<1){showStatus('Введите числовой ID игрока из profile.php?id=...');return;}
-    if(!isForum()){showStatus('Поиск работает только на самом Safe Space, под авторизованным аккаунтом.');return;}
+    if(!isForum()){showStatus('Поиск работает только на Safe Space, под авторизованным аккаунтом.');return;}
     if(states.id!==id)restore(id);
     states.errors=[];controller=new AbortController();setBusy(true);
-    const found=new Map(),pids=new Map(),visited=new Set();
-    let totalPages=0,zeroPages=0;
+    const candidates=new Map(),pids=new Map(),verified=new Map(),visited=new Set();
+    let totalPages=0,checked=0,excluded=0,errors=0;
     try{
-      showStatus('Шаг 1: ищу ссылки по ID персонажа; сохранённые эпизоды не стираются…');
+      showStatus('Шаг 1: собираю ссылки из результатов поиска по ID…');
       const modes=['show_user_posts','show_user_topics'];
       for(const mode of modes){
-        let queue=[forumUrl('/search.php?action='+mode+'&user_id='+encodeURIComponent(id))];
-        let currentPages=0;
+        const queue=[forumUrl('/search.php?action='+mode+'&user_id='+encodeURIComponent(id))];
         while(queue.length&&totalPages<MAX_SEARCH_PAGES){
           if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
           const url=queue.shift();if(visited.has(url))continue;visited.add(url);
           let result;try{result=await getPage(url);}catch(e){states.errors.push('Поиск '+mode+': '+e.message);break;}
           const x=searchLinks(result.doc,id,mode);
-          if(!x.topics.size&&!x.pids.size)zeroPages++;
-          for(const [key,value] of x.topics){const prev=found.get(key);if(!prev||value.title.length>prev.title.length)found.set(key,value);}
+          for(const [key,value] of x.topics){const prev=candidates.get(key);if(!prev||value.title.length>prev.title.length)candidates.set(key,value);}
           for(const [key,value] of x.pids){if(!pids.has(key))pids.set(key,value);}
           for(const p of x.pages){if(!visited.has(p)&&!queue.includes(p))queue.push(p);}
-          currentPages++;totalPages++;
-          rememberLinks(found);
-          showStatus(`Шаг 1: ${totalPages} страниц поиска · ${found.size} уникальных тем · ${pids.size} ссылок на посты`);
-          if(totalPages%10===0)await pause(220);
-          else await pause(75);
+          totalPages++;
+          showStatus(`Поиск: ${totalPages} страниц · ${candidates.size} ссылок на темы · ${pids.size} ссылок на сообщения`);
+          await pause(75);
         }
       }
-      // A name-filtered TOPIC search is an additional source. Search by ID is the primary source.
       const author=normalize((states.name||await loadProfile(id))||'').replace(/^профиль(?: пользователя)?\s*[:—–-]\s*/i,'');
       if(author.length>1&&author.length<70&&!/^(профиль|информация|пользователь)$/i.test(author)&&totalPages<MAX_SEARCH_PAGES){
         states.name=author;
@@ -577,97 +616,98 @@
           const url=queue.shift();if(visited.has(url))continue;visited.add(url);
           let result;try{result=await getPage(url);}catch(e){states.errors.push('Дополнительный поиск: '+e.message);break;}
           const x=searchLinks(result.doc,id,'search');
-          for(const [key,value] of x.topics){const prev=found.get(key);if(!prev||value.title.length>prev.title.length)found.set(key,value);}
+          for(const [key,value] of x.topics){const prev=candidates.get(key);if(!prev||value.title.length>prev.title.length)candidates.set(key,value);}
           for(const [key,value] of x.pids){if(!pids.has(key))pids.set(key,value);}
           for(const p of x.pages){if(!visited.has(p)&&!queue.includes(p))queue.push(p);}
-          totalPages++;rememberLinks(found);
-          showStatus(`Шаг 1: ${found.size} уникальных тем, уточняю поиск по игровым разделам…`);
-          await pause(75);
+          totalPages++;await pause(75);
         }
       }
-      // A result might provide only ?pid=. Resolve it into ?id=.
-      let i=0,failedPid=0;
+      // PID links must be resolved to topic ID, and section validated before saving.
+      let resolved=0;
       for(const source of pids.values()){
         if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-        if(found.size>=MAX_EPISODES){states.errors.push('Достигнут предел '+MAX_EPISODES+' тем.');break;}
-        const idFromPost=await resolvePid(source.url);i++;
-        if(idFromPost){
-          if(!found.has(idFromPost))found.set(idFromPost,{id:idFromPost,title:source.title||''});
-        }else{
-          failedPid++;
-          const synthetic='pid-'+source.pid;
-          const one=new Map([[synthetic,{title:source.title||('Сообщение #'+source.pid),url:source.url}]]);
-          rememberLinks(one);
-        }
-        if(i%4===0||i===pids.size){rememberLinks(found);showStatus(`Шаг 1: преобразовано ссылок на сообщения ${i}/${pids.size} · найдено ${found.size} тем`);}
-        await pause(60);
+        if(resolved>=MAX_EPISODES)break;
+        try{
+          const {doc,finalUrl}=await getPage(source.url);
+          const topic=episodeIdFromPage(doc,finalUrl),section=exactGameSection(doc);
+          if(topic&&section&&topic!=='1364'){
+            if(!verified.has(topic))verified.set(topic,{id:topic,title:source.title,section});
+          }else excluded++;
+        }catch(e){errors++;states.errors.push('Сообщение #'+source.pid+': '+e.message);}
+        resolved++;
+        if(resolved%5===0){rememberVerified(verified);showStatus(`Проверка сообщений: ${resolved}/${pids.size} · подтверждено ${verified.size} игровых тем`);}
+        await pause(45);
       }
-      rememberLinks(found);
+      rememberVerified(verified);
+      // A topic link is only accepted when its OWN final forum breadcrumb matches 7 IDs.
+      for(const [topic,source] of candidates){
+        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+        if(verified.size>=MAX_EPISODES){states.errors.push('Достигнут предел '+MAX_EPISODES+' игровых тем.');break;}
+        if(verified.has(topic)||topic==='1364')continue;
+        checked++;
+        try{
+          const {doc}=await getPage('/viewtopic.php?id='+topic);
+          const section=exactGameSection(doc);
+          if(section){verified.set(topic,{...source,section});}
+          else excluded++;
+        }catch(e){errors++;states.errors.push('Тема #'+topic+': '+e.message);}
+        if(checked%5===0){rememberVerified(verified);showStatus(`Проверено ${checked} тем · ${verified.size} в 7 игровых разделах · прочие отброшены: ${excluded}`);}
+        await pause(45);
+      }
+      rememberVerified(verified);
       save();render();
-      if(!states.items.length){
-        showStatus('Поиск не вернул ссылок. Нажмите «Проверить поиск»: он откроет результаты RusFF для этого ID.');
-        states.errors.push('В ответе поиска не обнаружены ссылки на темы; возможно, требуется другая форма поиска RusFF.');
-      }else{
-        showStatus(`Шаг 1 завершён: ${found.size} уникальных тем${failedPid?' · '+failedPid+' ссылок на посты требуют проверки':''}. Нажмите «2. Заполнить данные». Ничего не удалено.`);
-      }
-      if(totalPages>=MAX_SEARCH_PAGES)states.errors.push('Достигнут предел страниц поиска: результаты могут быть неполными.');
-      if(states.errors.length)console.warn('SAFE SPACE chronology search:',states.errors);
+      showStatus(`Готово: ${verified.size} игровых тем в разделах 5, 8, 9, 17, 18, 19, 22 · исключено ${excluded} посторонних · ошибки чтения ${errors}.`);
+      if(totalPages>=MAX_SEARCH_PAGES)states.errors.push('Лимит страниц поиска: найденные темы могут быть неполными.');
+      if(states.errors.length)console.warn('Safe Space chronology:',states.errors);
     }catch(e){
-      if(e.name==='AbortError')showStatus(`Поиск остановлен. Собранные ${states.items.length} ссылок сохранены.`);
-      else{states.errors.push(e.message);showStatus('Не удалось завершить поиск: '+e.message+'. Найденные ссылки сохранены.');}
-    }finally{save();render();setBusy(false);controller=null;}
+      if(e.name==='AbortError')showStatus(`Остановлено. Подтверждено ${verified.size} игровых тем.`);
+      else{states.errors.push(e.message);showStatus('Ошибка поиска: '+e.message);}
+    }finally{rememberVerified(verified);save();render();setBusy(false);controller=null;}
   }
   async function enrich(){
     const id=String(byId('ssc-user').value||'').trim();
     if(!/^\d{1,12}$/.test(id)||Number(id)<1){showStatus('Введите ID игрока.');return;}
-    if(!isForum()){showStatus('Обогащение данных работает только на форуме.');return;}
+    if(!isForum()){showStatus('Заполнение работает только на форуме.');return;}
     if(states.id!==id)restore(id);
-    if(!states.items.length){showStatus('Сначала выполните шаг 1 — поиск ссылок.');return;}
+    if(!states.items.length){showStatus('Сначала выполните поиск ссылок в 7 игровых разделах.');return;}
     states.errors=[];controller=new AbortController();setBusy(true);
-    let count=0,valid=0,review=0,errors=0;
+    let count=0,errors=0,removed=0;
     try{
-      showStatus('Шаг 2: определяю названия игровых разделов…');
       const sections=await loadSectionMap();
-      const targets=states.items.filter(x=>!x.manual&&/^\d+$/.test(String(x.id)));
+      const targets=states.items.filter(x=>!x.manual&&/^\d+$/.test(String(x.id))&&SECTIONS.includes(Number(x.sectionId)));
       for(const existing of targets){
         if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
         count++;
         try{
           const {doc}=await getPage('/viewtopic.php?id='+existing.id);
-          const crumbs=getCrumbs(doc);
-          const match=crumbs.find(x=>SECTIONS.includes(x.id));
-          if(!match){
-            existing.reviewOnly=true;
-            existing.reviewReason=crumbs.length?'Тема не в одном из 7 игровых разделов':'Раздел темы не распознан';
-            existing.viewUncertain=true;existing.detailLoaded=true;review++;
+          const section=exactGameSection(doc);
+          if(!section){
+            // Removed/moved topic is not eligible. Never show a non-game topic.
+            states.items=states.items.filter(x=>x.id!==existing.id);
+            removed++;
           }else{
-            const ep=parseEpisode(doc,existing.id,sections[match.id]||match,{title:existing.title});
+            const ep=parseEpisode(doc,existing.id,sections[section.id]||section,{title:existing.title});
             const overrides=existing.override||{};
-            for(const key of ['title','date','participants','category','view','status','notes','url']){
+            for(const key of ['title','date','participants','view','notes','url']){
               if(overrides[key])ep[key]=existing[key];
             }
-            ep.override=overrides;ep.dateKey=dateInfo(ep.date).key;
-            ep.reviewOnly=false;ep.reviewReason='';ep.detailLoaded=true;
-            // If the user moved it manually before a re-scan, keep their decision.
-            if(existing.override?.reviewOnly){ep.reviewOnly=existing.reviewOnly;ep.reviewReason=existing.reviewReason||'';}
-            Object.assign(existing,ep);valid++;
+            ep.override=overrides;ep.status=defaultStatus(section.id);ep.dateKey=dateInfo(ep.date).key;
+            Object.assign(existing,ep);
           }
           existing.detailsError='';
         }catch(e){
-          existing.detailsError=e.message;existing.dateUncertain=true;
-          existing.viewUncertain=true;errors++;
-          states.errors.push('Тема '+existing.id+': '+e.message);
-          // KEEP the link even on 404 or access errors; no removal or replacement.
+          // A verified game link survives a transient failure to read the header.
+          existing.detailsError=e.message;errors++;states.errors.push('Тема '+existing.id+': '+e.message);
         }
         if(count%3===0||count===targets.length){save();render();}
-        showStatus(`Шаг 2: ${count}/${targets.length} · игровые ${valid} · на проверку ${review} · ошибки ${errors}`);
-        await pause(95);
+        showStatus(`Шаг 2: ${count}/${targets.length} · уточнено ${count-errors-removed} · исключено ${removed} · ошибки ${errors}`);
+        await pause(75);
       }
       save();render();
-      showStatus(`Готово: ${states.items.filter(x=>!x.reviewOnly).length} ссылок в хронологии, ${states.items.filter(x=>x.reviewOnly).length} на проверку. Все найденные ссылки сохранены.`);
+      showStatus(`Готово: ${states.items.length} игровых эпизодов; ${removed} тем покинули игровые разделы. Закрыты #17/#18/#19, заброшены #22.`);
     }catch(e){
-      if(e.name==='AbortError')showStatus(`Уточнение остановлено: ${count} тем обработано. Ссылки сохранены.`);
-      else{states.errors.push(e.message);showStatus('Ошибка при уточнении: '+e.message+'. Ссылки сохранены.');}
+      if(e.name==='AbortError')showStatus(`Заполнение остановлено: обработано ${count} тем.`);
+      else{states.errors.push(e.message);showStatus('Ошибка уточнения: '+e.message);}
     }finally{save();render();setBusy(false);controller=null;}
   }
   let editingId=null;
@@ -681,11 +721,13 @@
     form.elements.category.value=item?.category||'personal';
     form.elements.view.value=item?.view||'timeline';
     form.elements.status.value=item?.status||'ongoing';
+    form.elements.status.disabled=Boolean(item && !item.manual);
+    form.elements.category.disabled=Boolean(item && !item.manual);
     form.elements.participants.value=item?.participants||'';
     form.elements.notes.value=item?.notes||'';
     byId('ssc-form-title').textContent=item?'Редактировать эпизод':'Добавить эпизод';
     byId('ssc-delete').hidden=!item;
-    byId('ssc-edit-warn').textContent=item?`Источник: ${item.sectionName||'вручную'}. Участники: ${item.participantsSource||'указаны вручную'}. Изменения не редактируют темы форума.`:'';
+    byId('ssc-edit-warn').textContent=item?`Источник: ${item.sectionName||'вручную'}. ${item.manual?'Категорию и статус можно менять вручную.':'Категория и статус автоматически определяются разделом и не меняются при переносе карточки.'} Изменения не редактируют темы форума.`:'';
     byId('ssc-editor').classList.add('is-open');form.elements.title.focus();
   }
   function closeEdit(){byId('ssc-editor').classList.remove('is-open');editingId=null;}
@@ -731,8 +773,8 @@
       if(!data.id||!/^\d+$/.test(String(data.id)))throw new Error('Не указан корректный id');
       states.id=String(data.id);byId('ssc-user').value=states.id;
       states.name=String(data.name||'');
-      states.items=data.items.filter(x=>x&&String(x.id||'')&&CAT[x.category]).map(x=>({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,override:x.override||{},status:STATUS[x.status]?x.status:'unknown'}));
-      states.sections=data.sections||{};states.theme=data.theme||'night';renderSections();byId('ssc-theme').value=states.theme;
+      states.items=data.items.filter(validSavedItem).map(x=>correctedEpisode({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,reviewOnly:false,reviewReason:'',override:{...(x.override||{})},status:STATUS[x.status]?x.status:'ongoing'}));
+      states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...(data.sections?.[n]||{}),...SECTION_RULES[n],id:n}]));states.theme=data.theme||'night';renderSections();byId('ssc-theme').value=states.theme;
       save();render();showStatus('Импортировано '+states.items.length+' эпизодов.');
     }catch(err){showStatus('Ошибка импорта: '+err.message);}finally{e.target.value='';}
   });
@@ -753,21 +795,20 @@
   byId('ssc-board').addEventListener('drop',e=>{
     const col=e.target.closest('.ssc-column');if(!col)return;e.preventDefault();
     const id=dragging||e.dataTransfer?.getData('text/plain');const item=states.items.find(x=>x.id===id);
-    if(item){item.view=col.dataset.view;item.reviewOnly=false;item.reviewReason='';item.override={...item.override,view:true,reviewOnly:true};item.viewUncertain=false;save();render();showStatus('Эпизод перенесён в «'+VIEW[item.view]+'».');}dragging=null;
+    if(item){item.view=col.dataset.view;item.reviewOnly=false;item.reviewReason='';item.override={...item.override,view:true};item.viewUncertain=false;save();render();showStatus('Эпизод перенесён в «'+VIEW[item.view]+'».');}dragging=null;
   });
-  for(const root of [byId('ssc-board'),byId('ssc-review-list')])root.addEventListener('click',e=>{const b=e.target.closest('[data-edit]');if(b)edit(b.dataset.edit);});
+  for(const root of [byId('ssc-board')])root.addEventListener('click',e=>{const b=e.target.closest('[data-edit]');if(b)edit(b.dataset.edit);});
   const onCardChange=e=>{
     const el=e.target.closest('select[data-field]');if(!el)return;
     const item=states.items.find(x=>x.id===el.dataset.id);if(!item)return;
-    if(el.dataset.field==='status'&&STATUS[el.value]){item.status=el.value;item.override={...item.override,status:true};item.statusUncertain=false;}
-    else if(el.dataset.field==='view'&&(VIEW[el.value]||el.value==='review')){
-      if(el.value==='review'){item.reviewOnly=true;item.reviewReason='Отправлено на проверку вручную';}
-      else{item.view=el.value;item.reviewOnly=false;item.reviewReason='';item.viewUncertain=false;}
-      item.override={...item.override,view:true,reviewOnly:true};
+    if(el.dataset.field==='status'&&STATUS[el.value]&&item.manual){item.status=el.value;item.override={...item.override,status:true};item.statusUncertain=false;}
+    else if(el.dataset.field==='view'&&VIEW[el.value]){
+      item.view=el.value;item.reviewOnly=false;item.reviewReason='';item.viewUncertain=false;
+      item.override={...item.override,view:true};
     }
     save();render();
   };
-  for(const root of [byId('ssc-board'),byId('ssc-review-list')])root.addEventListener('change',onCardChange);
+  for(const root of [byId('ssc-board')])root.addEventListener('change',onCardChange);
   byId('ssc-cancel').addEventListener('click',closeEdit);
   byId('ssc-form').addEventListener('submit',e=>{
     e.preventDefault();const f=e.target;
@@ -775,7 +816,7 @@
     if(!next.title)return;
     if(next.url&&!safeURL(next.url)){showStatus('Ссылка должна вести на safespace.rusff.me');return;}
     if(!states.id){showStatus('Сначала введите ID персонажа.');return;}
-    if(editingId){const item=states.items.find(x=>x.id===editingId);if(item){Object.assign(item,next,{reviewOnly:false,reviewReason:'',dateKey:dateInfo(next.date).key,dateUncertain:false,categoryUncertain:false,viewUncertain:false,statusUncertain:false});item.override={...item.override,...Object.fromEntries(Object.keys(next).map(k=>[k,true])),reviewOnly:true};}}
+    if(editingId){const item=states.items.find(x=>x.id===editingId);if(item){if(!item.manual){next.status=defaultStatus(item.sectionId);next.category=categoryForSection(item.sectionId, []);}Object.assign(item,next,{reviewOnly:false,reviewReason:'',dateKey:dateInfo(next.date).key,dateUncertain:false,categoryUncertain:false,viewUncertain:false,statusUncertain:false});item.override={...item.override,...Object.fromEntries(Object.keys(next).filter(k=>item.manual||!['status','category'].includes(k)).map(k=>[k,true])),reviewOnly:true};}}
     else{states.items.push({id:'manual-'+Date.now(),...next,manual:true,dateKey:dateInfo(next.date).key,dateUncertain:false,categoryUncertain:false,viewUncertain:false,statusUncertain:false,override:{},sectionName:'вручную',participantsSource:'указаны вручную'});}
     closeEdit();save();render();showStatus('Изменения сохранены в браузере.');
   });
@@ -785,6 +826,7 @@
   });
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(byId('ssc-editor').classList.contains('is-open'))closeEdit();else if(!isTargetTopic)overlay.classList.remove('is-open');}});
   // Do not automatically scan; only fetch on an explicit click.
+  // Auto-fetched topics must have an exact validated section among the seven IDs.
   const current=typeof UserID==='number'&&UserID>0?String(UserID):'';
   if(current){byId('ssc-user').value=current;restore(current);}else render();
   if(!isForum()){
