@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v9 · потоковая проверка ссылок и диагностика.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v10 · поиск по ID, настоящие заголовки тем.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -24,7 +24,7 @@
   const STATUS = {unknown:'Не определён',ongoing:'В процессе',finished:'Закрыт',abandoned:'Заброшен'};
   const MAX_SEARCH_PAGES = 400;
   const MAX_EPISODES = 4000;
-  const STORAGE_KEY = 'safe-space-chronology-v2-';
+  const STORAGE_KEY = 'safe-space-chronology-v2-'; // Preserve existing user edits across versions.
   const LEGACY_KEY = 'safe-space-chronology-v1-';
   const VIEW = {timeline:'Хронология',alternative:'Альтернатива',unfinished:'Незавершённые'};
   const isUnfinished = s=>/незаверш|недоигр|заброш|брошенн|заморож|незакрыт/i.test(normalize(s).toLowerCase().replace(/ё/g,'е'));
@@ -121,6 +121,9 @@
   function correctedEpisode(x) {
     const section=SECTION_RULES[Number(x.sectionId)];
     if(x.manual===true || !section)return x;
+    // Old scan results stored the text of a search-result author as title.
+    // Do not present it as an episode title until a real viewtopic is read.
+    if(!x.titleFromTopic && !x.detailLoaded && !x.override?.title)x.title='Эпизод #'+x.id;
     x.status=section.status;
     x.statusUncertain=false;
     // Old versions had #19 in the main chronology and #22 as 'ongoing'.
@@ -158,10 +161,29 @@
     select(c,'p,div,li,tr,blockquote,h1,h2,h3').forEach(n=>n.appendChild(document.createTextNode('\n')));
     return c.textContent||'';
   }
-  function topicTitle(doc,fallback) {
-    const x=doc.querySelector('#pun-viewtopic h1,#pun-main .main h1,#pun-main h1,.topic-title');
-    const title=getText(x);
-    return title && title.toLowerCase()!=='информация' ? title : fallback||'Без названия';
+  // Trust the title from the actual VIEWTOPIC document only. Search result
+  // anchors often point to post authors and are NOT episode names.
+  function topicTitle(doc, id) {
+    const container=doc.querySelector('#pun-viewtopic');
+    if(!container)return '';
+    const selectors=[
+      '#pun-viewtopic .main-head h1 span',
+      '#pun-viewtopic .main-head h1',
+      '#pun-viewtopic .main h1 span',
+      '#pun-viewtopic .main h1',
+      '#pun-viewtopic h1 span',
+      '#pun-viewtopic h1',
+      '#pun-crumbs1 .crumbs strong',
+      '#pun-crumbs2 .crumbs strong'
+    ];
+    const junk=/^(?:marauders\s*[:·-]\s*safe space|профиль(?: пользователя)?|форум|главная|сообщения|темы|просмотр темы|information|информация)$/i;
+    for(const selector of selectors){
+      const title=getText(doc.querySelector(selector)).replace(/^тема\s*[:—–-]\s*/i,'').replace(/\s*\(просмотр темы\)\s*$/i,'');
+      if(title && title.length>1 && !junk.test(title))return title;
+    }
+    // A missing heading is preferable to a false title. Show the thread number
+    // rather than copying an author name from the search results.
+    return '';
   }
   function maxPage(doc){
     const nums=select(doc,'#pun-viewtopic .paging a, #pun-viewtopic .pagelink a, .paging a, a[href*="viewtopic.php"][href*="p="]').map(a=>{
@@ -174,14 +196,14 @@
     if(!section)throw new Error('Эпизод больше не находится в 7 игровых разделах');
     const label=crumbs.map(x=>x.label).join(' · ');
     const firstText=findPostContent(doc);
-    const title=topicTitle(doc,fromSearch?.title);
+    const title=topicTitle(doc,id)||(`Эпизод #${id}`);
     const roots=crumbs.filter(x=>ROOTS[x.id]);
     const category=categoryForSection(section.id,crumbs);
     const date=extractDate(firstText,title);
     const authors=parseAuthors(doc);
     const participant=extractParticipants(firstText,title,authors);
     return {
-      id:String(id),title,url:topicURL(id),category,
+      id:String(id),title,url:topicURL(id),titleFromTopic:!title.startsWith('Эпизод #'),category,
       view:viewForSection(section.id),
       status:defaultStatus(section.id),date:date.date,dateKey:date.dateKey,
       detailLoaded:true,reviewOnly:false,participants:participant.participants,
@@ -217,6 +239,9 @@
     const add=(a)=>{
       let u;try{u=new URL(a.getAttribute('href')||'',forumUrl('/'));}catch(e){return;}
       if(u.hostname!==HOST || !/\/viewtopic\.php$/i.test(u.pathname))return;
+      // The search page includes links INSIDE post texts. These are not
+      // proof that this user participated in the linked thread.
+      if(a.closest('.post-content,.post-body,.post-sig,.sig-content,.post-author,.pa-author,.user-info,.postprofile,.post-entry .post-content'))return;
       const id=u.searchParams.get('id'),pid=u.searchParams.get('pid');
       const row=a.closest('.post, .tclcon, .post-entry, .topic, tr, li, .container')||a.parentElement;
       const subject=row?.querySelector('h3 a[href*="viewtopic.php"],.topictitle,.tclcon a[href*="viewtopic.php"],h3')||a;
@@ -427,7 +452,7 @@
       const data=JSON.parse(raw);
       if(data&&Array.isArray(data.items)){
         states.items=data.items.filter(validSavedItem).map(x=>correctedEpisode({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:{...(x.override||{})},reviewOnly:false,reviewReason:'',status:STATUS[x.status]?x.status:'ongoing',statusUncertain:false,dateKey:dateInfo(x.date).key}));
-        states.name=data.name||'';states.sections=data.sections||{};states.theme=data.theme||'night';
+        states.name=/^marauders\s*[:·-]\s*safe space$/i.test(String(data.name||''))?'':(data.name||'');states.sections=data.sections||{};states.theme=data.theme||'night';
       }
     }catch(e){}
     states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...states.sections[n],...SECTION_RULES[n],id:n}]));
@@ -521,11 +546,6 @@
     byId('ssc-out').value=byId('ssc-html-tags').checked?'[html]\n'+html+'\n[/html]':html;
     byId('ssc-preview').innerHTML=html;
   }
-  async function loadProfile(id){
-    try{const {doc}=await getPage('/profile.php?id='+id); const n=getText(doc.querySelector('#pun-profile h1, #profile-right h1, #pun-main h1'));
-      return n&&n.toLowerCase()!=='информация'?n:'';
-    }catch(e){return '';}
-  }
   async function loadSectionMap(){
     const map={};let skipped=0;
     for(const id of SECTIONS){
@@ -547,7 +567,7 @@
   }
   function makeVerifiedItem(id,source,section) {
     const category=categoryForSection(section.id, []);
-    return {id:String(id),title:normalize(source?.title)||('Эпизод #'+id),
+    return {id:String(id),title:source?.titleFromTopic?normalize(source.title):('Эпизод #'+id),titleFromTopic:!!source?.titleFromTopic,
       url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',
       category,view:viewForSection(section.id),
       status:defaultStatus(section.id),dateUncertain:true,statusUncertain:false,
@@ -569,7 +589,10 @@
         x.category=categoryForSection(section.id, []);
         if(x.override)delete x.override.status;
         if(!x.override?.view)x.view=viewForSection(section.id);
-        if(!x.override?.title&&x.title.startsWith('Эпизод #')&&source.title)x.title=source.title;
+        // Repair old versions' false titles (post AUTHOR names) on every
+        // confirmed scan. Preserve only user-edited titles.
+        if(!x.override?.title && source.titleFromTopic){x.title=source.title;x.titleFromTopic=true;}
+        if(!x.override?.title && !x.titleFromTopic)x.title='Эпизод #'+id;
         updated++;
       }else{
         x=makeVerifiedItem(id,source,section);states.items.push(x);old.set(String(id),x);added++;
@@ -622,10 +645,11 @@
       try{
         const {doc}=await getPage('/viewtopic.php?id='+topic);
         const section=exactGameSection(doc);
-        if(section){
-          verified.set(topic,{...source,id:topic,section});
+        if(section && doc.querySelector('#pun-viewtopic')){
+          const realTitle=topicTitle(doc,topic);
+          verified.set(topic,{id:topic,title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,section});
           rememberVerified(new Map([[topic,verified.get(topic)]]));
-          report('✓ Тема #'+topic+' → раздел #'+section.id);
+          report('✓ Тема #'+topic+' → раздел #'+section.id+'; название: '+(realTitle||'не удалось прочитать')); 
           advance('Проверяю игровые темы');
         }else{excluded++;report('— Тема #'+topic+' не входит в 7 разделов (или не удалось прочитать навигацию)');}
       }catch(e){errors++;states.errors.push('Тема #'+topic+': '+e.message);report('! Тема #'+topic+': '+e.message);}
@@ -637,13 +661,14 @@
       try{
         const {doc,finalUrl}=await getPage(source.url);
         const topic=episodeIdFromPage(doc,finalUrl),section=exactGameSection(doc);
-        if(topic&&section&&topic!=='1364'){
+        if(topic&&section&&topic!=='1364'&&doc.querySelector('#pun-viewtopic')){
           checkedTopics.add(String(topic));
           if(!verified.has(String(topic))){
-            const candidate={id:String(topic),title:source.title||'',section};
+            const realTitle=topicTitle(doc,topic);
+            const candidate={id:String(topic),title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,section};
             verified.set(String(topic),candidate);
             rememberVerified(new Map([[String(topic),candidate]]));
-            report('✓ Сообщение #'+source.pid+' → тема #'+topic+', раздел #'+section.id);
+            report('✓ Сообщение #'+source.pid+' → тема #'+topic+', раздел #'+section.id+'; название: '+(realTitle||'не удалось прочитать')); 
             advance('Собираю ссылки на игровые эпизоды');
           }
         }else{
@@ -696,14 +721,11 @@
     };
     try{
       report('Начинаю поиск. Карточки добавляются немедленно после проверки раздела.');
-      // First try topic-oriented author search; often finds the same episodes with fewer requests.
-      const author=normalize((states.name||await loadProfile(id))||'').replace(/^профиль(?: пользователя)?\s*[:—–-]\s*/i,'');
-      if(author.length>1&&author.length<70&&!/^(профиль|информация|пользователь)$/i.test(author)){
-        states.name=author;
-        const params=new URLSearchParams({action:'search',author,search_in:'all',show_as:'topics'});
-        for(const n of SECTIONS)params.append('forums[]',String(n));
-        await searchMode(forumUrl('/search.php?'+params.toString()),'search','Поиск тем по автору в 7 разделах');
-      }else report('Имя профиля не распознано; продолжаю поиск по ID.');
+      // Important: DO NOT search by guessed profile name. A previous version
+      // accidentally read the forum's heading "Marauders: safe space" as the
+      // player's nickname, producing unrelated results. ID-only endpoints here.
+      if(/^marauders\s*[:·-]\s*safe space$/i.test(states.name))states.name='';
+      report('Ищу только сообщения и темы пользователя ID='+id+'. Поиск по текстовому имени отключён.');
       // Topics started by user; these can be verified cheaply.
       await searchMode(forumUrl('/search.php?action=show_user_topics&user_id='+encodeURIComponent(id)),'show_user_topics','Темы, созданные персонажем');
       // Posts of user also reveal topics started by other players.
