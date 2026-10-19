@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v12 · даты из названий, участники из первого поста, скрытие эпизодов.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v13 · участники и описание из шапки, компактные карточки.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -225,35 +225,83 @@
     const c=src.cloneNode(true);
     select(c,'script,style,.post-sig,.signature,blockquote,.quote, .spoiler, .hvmask').forEach(n=>n.remove());
     select(c,'br,hr').forEach(n=>n.replaceWith(document.createTextNode('\n')));
-    select(c,'p,div,li,tr,h1,h2,h3,h4,h5,header,center').forEach(n=>n.appendChild(document.createTextNode('\n')));
+    select(c,'p,div,li,tr,td,th,h1,h2,h3,h4,h5,header,center').forEach(n=>n.appendChild(document.createTextNode('\n')));
     return c.textContent.split(/\n/).map(normalize).filter(Boolean).slice(0,100);
   }
+  // Участники и описание — ТОЛЬКО из ПЕРВОГО сообщения темы.
+  // На Safe Space имена в шапке могут быть в <i>, <em>, <span>, <div>:
+  // Evan Rosier, Whisper Whisp  ИЛИ  EVAN ROSIER & WHISPER WHISP.
   function extractParticipants(firstText,title,authors,doc) {
-    // ONLY the opening post; never infer participants from all message authors.
     const lines=doc?firstPostLines(doc):String(firstText||'').split(/\n/).map(normalize).filter(Boolean);
-    const tag=/^(?:участники(?: эпизода)?|действующие лица|игроки|персонажи|с кем|кто|participants|characters)\s*[:—–-]\s*/i;
-    for(let i=0;i<Math.min(65,lines.length);i++){
+    const tag=/^(?:участники(?: эпизода)?|действующие лица|игроки|персонажи|с кем|кто|participants|characters)\s*[:—–-]?\s*/i;
+    // Не захватывать 'Участники: описание' в длинных секциях.
+    for(let i=0;i<Math.min(90,lines.length);i++){
       const line=lines[i];
       if(!tag.test(line))continue;
       const value=normalize(line.replace(tag,'')||lines[i+1]||'');
-      if(value && value.length<260 && !/^(?:дата|время|место|описание)/i.test(value))
+      if(value && value.length<220 && !/^(?:дата|время|место|описание|локация|характер)/i.test(value))
         return {participants:value,source:'Первое сообщение: список участников'};
     }
-    // Стилизованная шапка эпизода: EVAN ROSIER & WHISPER WHISP (в т. ч. внутри div/span).
-    const clean=s=>normalize(s.replace(/^(?:\d{1,2}\.\d{1,2}\.\d{4}\s*)/,'').replace(/[«»]/g,''));
-    const pair=/[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+(?:\s+[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+){0,3}\s*(?:&|×|\+|\s+и\s+|\s+and\s+)\s*[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+(?:\s+[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+){0,3}/i;
+    const name="[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\\-]+(?:\\s+[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\\-]+){1,2}";
+    const pair=new RegExp('('+name+'(?:\\s*(?:,|&|×|\\+|\\/|\\s+и\\s+|\\s+and\\s+)\\s*'+name+')+)','i');
     const body=doc?firstPostBody(doc):null;
-    const prominent=body?select(body,'h1,h2,h3,h4,h5,center,strong,b,[class*="participant"],[class*="player"],[class*="episode"]')
-      .map(getText).filter(Boolean):[];
-    for(const line of [...prominent,...lines.slice(0,50)]){
-      const value=clean(line);
-      if(value.length<7||value.length>170||/^(?:дата|время|место|описание|локация|погода|время года)/i.test(value))continue;
-      if(pair.test(value)){
-        const m=value.match(pair);
-        return {participants:normalize(m?.[0]||value).slice(0,220),source:'Первое сообщение: заголовок с именами'};
+    const prominent=body?select(body,'h1,h2,h3,h4,h5,center,strong,b,i,em,span,font,td,[class*="participant"],[class*="player"],[class*="episode"]')
+      .map(getText).filter(s=>s.length>5&&s.length<250).slice(0,250):[];
+    for(const line of [...prominent,...lines.slice(0,90)]){
+      const value=normalize(line.replace(/[«»]/g,'')).slice(0,240);
+      if(value.length<7||/^(?:дата|время|место|описание|локация|погода|время года)/i.test(value))continue;
+      const m=value.match(pair);
+      if(m && m[0] && m[0].length<210){
+        return {participants:normalize(m[0]),source:'Первое сообщение: заголовок с именами'};
       }
     }
     return {participants:'',source:'Участники в первом сообщении не распознаны'};
+  }
+  function extractDescription(doc, participants) {
+    const body=firstPostBody(doc);
+    if(!body)return {description:'',source:'Первое сообщение недоступно'};
+    const lines=firstPostLines(doc);
+    const tagged=/^(?:описание(?: эпизода| игры)?|краткое описание|завязка|сюжет|суть|аннотация|о ч[её]м эпизод|предыстория|description|plot|summary)\s*[:—–-]?\s*/i;
+    const bad=/^(?:дата(?: и место)?|время|место|локация|участники|персонажи|погода|действующие лица|игроки|музыка|трек|song|music|credits?)\s*[:—–-]/i;
+    const clean=value=>normalize(String(value||'').replace(/^(?:описание(?: эпизода| игры)?|краткое описание|завязка|сюжет|суть|аннотация|о ч[её]м эпизод|предыстория|description|plot|summary)\s*[:—–-]?\s*/i,''));
+    const good=value=>value.length>=50 && value.length<=1400 && /[.!?…]/.test(value) && !bad.test(value) && !/^https?:\/\//i.test(value) && value!==participants;
+    // Сначала именованное поле в произвольной BBCode-разметке.
+    for(let i=0;i<Math.min(lines.length,110);i++){
+      const line=lines[i];
+      if(!tagged.test(line))continue;
+      let value=clean(line);
+      if(!value || value.length<40)value=clean(lines[i+1]||'');
+      if(good(value))return {description:value.slice(0,1400),source:'Первое сообщение: поле описания'};
+    }
+    // Шапки с произвольным HTML: обычный текст в отдельном блоке под именами.
+    // Исключены подписи к картинкам, ссылки и слишком длинные игровые сообщения.
+    const candidateNodes=select(body,'[class*="description"],[class*="episode-desc"],[class*="summary"],blockquote,p,article,section,div,span,td,th,i,em');
+    const candidates=[];const seen=new Set();
+    const add=(text,order)=>{
+      const value=normalize(text);
+      if(!good(value)||seen.has(value)||/^(?:\d{1,2}[.\-/]\d{1,2})/.test(value)||/^(?:[-–—]?\s*(?:эвен|еван|evan|whisper)\s+){1,2}$/i.test(value))return;
+      seen.add(value);candidates.push({value,order});
+    };
+    candidateNodes.slice(0,250).forEach((el,i)=>{
+      if(el.closest('.post-sig,.signature,.spoiler,.hvmask,script,style'))return;
+      // При вложенных div не брать оболочку, которая включает музыку,
+      // имена, дату и описание одновременно. Предпочесть сам блок описания.
+      const value=getText(el);
+      const inner=[...el.querySelectorAll('div,p,article,section,blockquote,span')];
+      if(inner.some(child=>{
+        const inside=getText(child);
+        return good(inside) && inside.length+12<value.length;
+      }))return;
+      add(value,i);
+    });
+    // Запасной путь: строки первого поста, когда автор оформил описание без <p>.
+    lines.slice(0,80).forEach((line,i)=>add(line,250+i));
+    // Короткий абзац в шапке более вероятен, чем контейнер из всей игры.
+    candidates.sort((a,b)=>a.order-b.order || a.value.length-b.value.length);
+    let selected=candidates.find(c=>c.order<250 && c.value.length<=700);
+    if(!selected)selected=candidates.find(c=>c.value.length<=700);
+    return selected ? {description:selected.value,source:'Первое сообщение: текст шапки'} :
+      {description:'',source:'Описание в первом сообщении не распознано'};
   }
   function findPostContent(doc) {
     return firstPostLines(doc).join('\n');
@@ -299,12 +347,13 @@
     const date=extractDate(firstText,title);
     const authors=parseAuthors(doc);
     const participant=extractParticipants(firstText,title,authors,doc);
+    const desc=extractDescription(doc,participant.participants);
     return {
       id:String(id),title,url:topicURL(id),titleFromTopic:!title.startsWith('Эпизод #'),category,
       view:viewForSection(section.id),
       status:defaultStatus(section.id),date:date.date,dateKey:date.dateKey,dateSource:date.dateSource,
       detailLoaded:true,reviewOnly:false,participants:participant.participants,
-      participantsSource:participant.source,sectionId:section.id,sectionName:section.label,
+      participantsSource:participant.source,description:desc.description,descriptionSource:desc.source,sectionId:section.id,sectionName:section.label,
       statusUncertain:false,viewUncertain:false,dateUncertain:!date.date,
       categoryUncertain:false,
       pages:maxPage(doc),authors,override:{},notes:'',updatedAt:Date.now()
@@ -424,19 +473,20 @@
   #ssc-overlay .ssc-coltitle{margin:0 0 11px;display:flex;justify-content:space-between;gap:10px;font:normal 22px Georgia,serif;color:#f0d5c6;border-bottom:1px solid #514057;padding-bottom:11px}
   #ssc-overlay .ssc-count{color:#c4b0c4;font:12px Arial,sans-serif}
   #ssc-overlay .ssc-list{display:flex;flex-direction:column;gap:8px}
-  #ssc-overlay .ssc-card{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;background:#30273a;border:1px solid #5a4862;border-left:3px solid #c4a7be;border-radius:9px;padding:10px 12px;cursor:grab}
+  #ssc-overlay .ssc-card{display:grid;grid-template-columns:minmax(100px,126px) minmax(0,1fr);grid-template-areas:"date content" ". actions";gap:9px 14px;align-items:start;background:#30273a;border:1px solid #5a4862;border-left:3px solid #c4a7be;border-radius:9px;padding:10px 12px;cursor:grab}
   #ssc-overlay .ssc-card:active{cursor:grabbing}
   #ssc-overlay .ssc-card.ssc-moving{opacity:.5}
-  #ssc-overlay .ssc-card a{color:#f6eaf1!important;text-decoration:none!important;font:normal 15px/1.4 Georgia,serif!important;word-break:break-word}
+  #ssc-overlay .ssc-card a{color:#f6eaf1!important;text-decoration:none!important;font:normal 15px/1.4 Georgia,serif!important;overflow-wrap:break-word;word-break:normal}
   #ssc-overlay .ssc-card a:hover{text-decoration:underline!important}
-  #ssc-overlay .ssc-card-date{color:#e1c4a3;font:12px/1.4 Arial,sans-serif;overflow-wrap:anywhere}
-  #ssc-overlay .ssc-card-content{min-width:0}
+  #ssc-overlay .ssc-card-date{grid-area:date;color:#e1c4a3;font:12px/1.4 Arial,sans-serif;overflow-wrap:anywhere}
+  #ssc-overlay .ssc-card-content{grid-area:content;min-width:0;max-width:100%;overflow-wrap:break-word}
+  #ssc-overlay .ssc-state{display:inline-block;color:#d9c1b7;margin:0 0 2px 3px;font:10px/1.5 Arial,sans-serif}
+  #ssc-overlay .ssc-description{color:#cbbbcb;font:italic 11px/1.55 Georgia,serif;margin-top:7px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   #ssc-overlay .ssc-meta{color:#c5b5ca;font:11px/1.55 Arial,sans-serif;overflow-wrap:anywhere;margin-top:5px}
   #ssc-overlay .ssc-note{color:#af9bb5;font-style:italic}
   #ssc-overlay .ssc-tags{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
   #ssc-overlay .ssc-tag{background:#42364c;color:#e3c7e9;border-radius:4px;padding:3px 6px;font:10px Arial,sans-serif;display:inline-block;margin-right:6px}
-  #ssc-overlay .ssc-card-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-  #ssc-overlay .ssc-card-controls select{font-size:11px!important;padding:6px!important;max-width:150px}
+  #ssc-overlay .ssc-card-controls{grid-area:actions;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
   #ssc-overlay .ssc-mini{background:transparent;color:#e8cbe6;border:1px solid #745b7b;padding:6px 8px;border-radius:7px}
   #ssc-overlay .ssc-remove{border-color:#9b6a79;color:#eac2c9}
   #ssc-overlay .ssc-remove:hover{background:#573440;color:#fff}
@@ -459,8 +509,8 @@
   #ssc-overlay label.ssc-field input,#ssc-overlay label.ssc-field select,#ssc-overlay label.ssc-field textarea{width:100%}
   #ssc-overlay .ssc-editactions{display:flex;gap:8px;justify-content:flex-end;margin-top:17px}
   #ssc-overlay .ssc-warn{font-size:12px;line-height:1.6;color:#dfb3a4;margin-top:10px}
-  @media(max-width:820px){#ssc-overlay .ssc-card{grid-template-columns:130px minmax(0,1fr)}#ssc-overlay .ssc-card-controls{grid-column:1/-1;justify-content:flex-start}}
-  @media(max-width:600px){#ssc-overlay{padding:0}#ssc-overlay .ssc-shell{height:100dvh;border-radius:0}#ssc-overlay .ssc-head{padding:15px}#ssc-overlay .ssc-content{padding:12px}#ssc-overlay .ssc-info{padding:9px 15px}#ssc-overlay .ssc-settings{padding:0 15px}#ssc-overlay .ssc-column{padding:11px}#ssc-overlay .ssc-card{grid-template-columns:1fr;gap:6px}#ssc-overlay .ssc-card-controls{grid-column:1;justify-content:flex-start}#ssc-overlay .ssc-coltitle{font-size:19px}#ssc-overlay .ssc-fields{grid-template-columns:1fr}#ssc-overlay .ssc-footer{padding:9px 15px}#ssc-overlay .ssc-export{padding:10px 15px}}
+  @media(max-width:820px){#ssc-overlay .ssc-card{grid-template-columns:minmax(90px,115px) minmax(0,1fr)}#ssc-overlay .ssc-card-controls{justify-content:flex-start}}
+  @media(max-width:600px){#ssc-overlay{padding:0}#ssc-overlay .ssc-shell{height:100dvh;border-radius:0}#ssc-overlay .ssc-head{padding:15px}#ssc-overlay .ssc-content{padding:12px}#ssc-overlay .ssc-info{padding:9px 15px}#ssc-overlay .ssc-settings{padding:0 15px}#ssc-overlay .ssc-column{padding:11px}#ssc-overlay .ssc-card{grid-template-columns:1fr;grid-template-areas:"date" "content" "actions";gap:6px}#ssc-overlay .ssc-card-controls{justify-content:flex-start}#ssc-overlay .ssc-coltitle{font-size:19px}#ssc-overlay .ssc-fields{grid-template-columns:1fr}#ssc-overlay .ssc-footer{padding:9px 15px}#ssc-overlay .ssc-export{padding:10px 15px}}
   /* INLINE MODE: widget is part of the thread's first post, never a viewport modal. */
   #ssc-chronology-root{display:block!important;max-width:100%;width:100%;clear:both;margin:18px auto 22px;position:relative;z-index:1}
   #ssc-overlay.ssc-embedded{position:relative!important;inset:auto!important;background:transparent!important;
@@ -501,9 +551,9 @@
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
     <details id="ssc-diagnostic" class="ssc-diagnostic"><summary>Диагностика поиска · почему ссылка не добавлена?</summary><pre id="ssc-diagnostic-report">Для начала нажмите «1. Найти ссылки».</pre><button type="button" class="ssc-btn" id="ssc-copy-report">Копировать отчёт</button></details>
     <div class="ssc-legend" id="ssc-settings">#5, #8 — в процессе · #9 — альтернатива · #17, #18 — закрыты · #19 — закрытая альтернатива · #22 — заброшены</div><div id="ssc-section-rules" hidden></div>
-    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Даты берутся из заголовков тем, участники — из первого сообщения. Шаг 2 уточняет данные. Если автор поста не подтверждён, тема не добавляется. Ошибка чтения шапки не удаляет ранее проверенную ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
+    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Даты берутся из заголовков тем, участники и описание — из первого сообщения. Шаг 2 обновляет эти данные. Если автор поста не подтверждён, тема не добавляется. Ошибка чтения шапки не удаляет ранее проверенную ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
     <div class="ssc-export" id="ssc-export"><div class="ssc-exportrow"><strong>Код для форумного сообщения</strong><label>Оформление <select id="ssc-theme"><option value="night">Ночная сирень</option><option value="parchment">Старинный пергамент</option></select></label><label style="display:flex;align-items:center;gap:4px"><input id="ssc-html-tags" type="checkbox" checked> Добавить [html][/html]</label><button id="ssc-copy" type="button" class="ssc-btn ssc-primary">Копировать HTML</button><button id="ssc-download-html" type="button" class="ssc-btn">Скачать HTML</button></div><p class="ssc-exporthint">Финальный блок статичен: его можно вставить в сообщение и он будет работать без скрипта конструктора. Кнопки редактирования в пост не попадают.</p><textarea id="ssc-out" readonly></textarea><div class="ssc-preview" id="ssc-preview"></div></div>
-    <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Удалённые эпизоды не возвращаются при сканировании. Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
+    <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или нажимайте «Изменить» для выбора строки. Личные и сюжетные автоматически смешиваются в «Хронологии». Удалённые эпизоды не возвращаются при сканировании. Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
     <div class="ssc-editor" id="ssc-editor"><form class="ssc-editbox" id="ssc-form"><h3 id="ssc-form-title">Эпизод</h3><div class="ssc-fields">
       <label class="ssc-field ssc-full">Название<input name="title" required maxlength="240"></label>
       <label class="ssc-field ssc-full">Ссылка на тему<input name="url" placeholder="https://safespace.rusff.me/viewtopic.php?id=…"></label>
@@ -512,7 +562,8 @@
       <label class="ssc-field">Тип эпизода<select name="category"><option value="personal">Личный</option><option value="plot">Сюжетный</option><option value="alternative">Альтернативный</option><option value="archived">Заброшенный</option></select></label>
       <label class="ssc-field">Статус<select name="status"><option value="unknown">Не определён</option><option value="ongoing">В процессе</option><option value="finished">Закрыт</option><option value="abandoned">Заброшен</option></select></label>
       <label class="ssc-field ssc-full">Участники<input name="participants" placeholder="Имена через запятую"></label>
-      <label class="ssc-field ssc-full">Примечание<textarea name="notes" rows="2" placeholder="Необязательно"></textarea></label>
+      <label class="ssc-field ssc-full">Описание эпизода<textarea name="description" rows="4" placeholder="Из шапки первого сообщения; можно отредактировать"></textarea></label>
+      <label class="ssc-field ssc-full">Примечание (личное)<textarea name="notes" rows="2" placeholder="Необязательно"></textarea></label>
     </div><div class="ssc-warn" id="ssc-edit-warn"></div><div class="ssc-editactions"><button class="ssc-btn" type="button" id="ssc-delete">Удалить из списка</button><button class="ssc-btn" type="button" id="ssc-cancel">Отмена</button><button class="ssc-btn ssc-primary" type="submit">Сохранить</button></div></form></div>
     </div>`;
   if (isTargetTopic) {
@@ -578,11 +629,11 @@
       const url=safeURL(x.url||'');
       const type=CAT[x.category]||'Проверьте тип';
       const flags=[x.dateUncertain?'проверьте дату':'',x.detailsError?'не удалось прочитать шапку':''].filter(Boolean);
-      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span>Участники: ${esc(x.participants||'Не определены')}</div>${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}</div><div class="ssc-card-controls"><select data-field="status" data-id="${esc(x.id)}" title="${x.manual?'Статус вручную':'Статус определяется разделом форума'}" ${x.manual?'':'disabled'}>${Object.entries(STATUS).map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}</select><select data-field="view" data-id="${esc(x.id)}" title="Переместить в раздел">${Object.entries(VIEW).map(([v,label])=>`<option value="${v}" ${!x.reviewOnly&&view===v?'selected':''}>${label}</option>`).join('')}</select><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button><button class="ssc-mini ssc-remove" type="button" data-remove="${esc(x.id)}" title="Удалить из этой хронологии и скрыть при следующих поисках">Убрать ×</button></div></article>`;
+      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span><span class="ssc-state">${esc(STATUS[x.status]||STATUS.unknown)}</span><div>Участники: ${esc(x.participants||'Не определены')}</div></div>${x.description?`<div class="ssc-description" title="Описание из первого сообщения">${esc(x.description)}</div>`:''}${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}</div><div class="ssc-card-controls"><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button><button class="ssc-mini ssc-remove" type="button" data-remove="${esc(x.id)}" title="Удалить из хронологии и скрыть при следующих поисках">Убрать ×</button></div></article>`;
     };
     for(const [view,heading] of Object.entries(VIEW)){
       const all=sortItems(states.items.filter(x=>!x.reviewOnly&&effectiveView(x)===view));
-      const items=all.filter(x=>!t||[x.title,x.participants,x.date,x.notes].join(' ').toLowerCase().includes(t));
+      const items=all.filter(x=>!t||[x.title,x.participants,x.description,x.date,x.notes].join(' ').toLowerCase().includes(t));
       html+=`<section class="ssc-column" data-view="${view}"><div class="ssc-coltitle"><span>${heading}</span><span class="ssc-count">${items.length}${t?' / '+all.length:''} эп.</span></div><div class="ssc-list">`;
       if(!items.length)html+='<div class="ssc-empty">Здесь пока нет эпизодов · можно добавить или перенести</div>';
       for(const x of items)html+=card(x,view);
@@ -600,7 +651,7 @@
       const url=safeURL(x.url||'');
       const t=url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<strong>${esc(x.title)}</strong>`;
       const type=(x.category==='plot'?'сюжет':x.category==='personal'?'личный':x.category==='alternative'?'альтернатива':'заброшенный');
-      return `<div class="sscp-line"><div class="sscp-date">${esc(x.date||'дата не указана')}</div><div class="sscp-main"><div class="sscp-title">${t}</div><div class="sscp-players">${esc(x.participants||'Участники не указаны')}</div>${x.notes?`<div class="sscp-note">${esc(x.notes)}</div>`:''}</div><div class="sscp-labels"><span class="sscp-type">${type}</span><span class="sscp-status sscp-${esc(x.status)}">${esc(STATUS[x.status]||STATUS.unknown)}</span></div></div>`;
+      return `<div class="sscp-line"><div class="sscp-date">${esc(x.date||'дата не указана')}</div><div class="sscp-main"><div class="sscp-title">${t}</div><div class="sscp-players">${esc(x.participants||'Участники не указаны')}</div>${x.description?`<div class="sscp-description">${esc(x.description)}</div>`:''}${x.notes?`<div class="sscp-note">${esc(x.notes)}</div>`:''}</div><div class="sscp-labels"><span class="sscp-type">${type}</span><span class="sscp-status sscp-${esc(x.status)}">${esc(STATUS[x.status]||STATUS.unknown)}</span></div></div>`;
     }).join('');
     // CSS is scoped. Public output has no interactive code or network requests.
     const css=`<style>
@@ -619,6 +670,7 @@
 #sschron-post .sscp-title{font:normal 16px/1.35 Georgia,serif;margin:0 0 5px;color:#f7e8f0;overflow-wrap:anywhere}
 #sschron-post .sscp-title a{color:#f7e8f0!important;text-decoration:none!important;border-bottom:1px dotted #a890b2}
 #sschron-post .sscp-players{font:11px/1.5 Arial,sans-serif;color:#bdafc3;overflow-wrap:anywhere}
+#sschron-post .sscp-description{font:italic 12px/1.55 Georgia,serif;color:#d6c0cb;margin-top:6px;overflow-wrap:break-word;white-space:normal}
 #sschron-post .sscp-note{font:italic 11px/1.5 Georgia,serif;color:#aa96ae;margin-top:4px;overflow-wrap:anywhere}
 #sschron-post .sscp-labels{display:flex;gap:5px;align-items:flex-end;flex-direction:column}
 #sschron-post .sscp-type,#sschron-post .sscp-status{white-space:nowrap;border-radius:4px;font:10px/1.4 Arial,sans-serif;padding:3px 6px;background:#3d3048;color:#d8c0d6}
@@ -629,7 +681,7 @@
 #sschron-post[data-theme="parchment"]{background:#eee2c9;border-color:#bda884;color:#554232}
 #sschron-post[data-theme="parchment"] .sscp-kicker,#sschron-post[data-theme="parchment"] .sscp-date{color:#966b48}
 #sschron-post[data-theme="parchment"] .sscp-heading,#sschron-post[data-theme="parchment"] .sscp-title,#sschron-post[data-theme="parchment"] .sscp-title a{color:#503b37!important}
-#sschron-post[data-theme="parchment"] .sscp-character,#sschron-post[data-theme="parchment"] .sscp-players,#sschron-post[data-theme="parchment"] .sscp-note,#sschron-post[data-theme="parchment"] .sscp-footer{color:#7d6859}
+#sschron-post[data-theme="parchment"] .sscp-character,#sschron-post[data-theme="parchment"] .sscp-players,#sschron-post[data-theme="parchment"] .sscp-description,#sschron-post[data-theme="parchment"] .sscp-note,#sschron-post[data-theme="parchment"] .sscp-footer{color:#7d6859}
 #sschron-post[data-theme="parchment"] .sscp-section-title{color:#7c544b;border-color:#c4b293}
 #sschron-post[data-theme="parchment"] .sscp-line{border-color:#d1c09d}
 #sschron-post[data-theme="parchment"] .sscp-type,#sschron-post[data-theme="parchment"] .sscp-status{background:#d9c8b0;color:#57483c}
@@ -672,7 +724,7 @@
   function makeVerifiedItem(id,source,section) {
     const category=categoryForSection(section.id, []);
     return {id:String(id),title:source?.titleFromTopic?normalize(source.title):('Эпизод #'+id),titleFromTopic:!!source?.titleFromTopic,
-      verifiedAuthorId:String(states.id),url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',
+      verifiedAuthorId:String(states.id),url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',description:'',
       category,view:viewForSection(section.id),
       status:defaultStatus(section.id),dateUncertain:true,statusUncertain:false,
       categoryUncertain:false,viewUncertain:false,detailLoaded:false,
@@ -697,12 +749,12 @@
         // confirmed scan. Preserve only user-edited titles.
         if(!x.override?.title && source.titleFromTopic){x.title=source.title;x.titleFromTopic=true;}
         if(!x.override?.title && !x.titleFromTopic)x.title='Эпизод #'+id;
-        for(const prop of ['date','dateKey','dateSource','participants','participantsSource','dateUncertain']){
+        for(const prop of ['date','dateKey','dateSource','participants','participantsSource','description','descriptionSource','dateUncertain']){
           if(!x.override?.[prop] && source[prop]!==undefined && (prop!=='participants'||source[prop]))x[prop]=source[prop];
         }
         updated++;
       }else{
-        x={...makeVerifiedItem(id,source,section),...Object.fromEntries(['date','dateKey','dateSource','participants','participantsSource','dateUncertain'].filter(p=>source[p]!==undefined).map(p=>[p,source[p]]))};
+        x={...makeVerifiedItem(id,source,section),...Object.fromEntries(['date','dateKey','dateSource','participants','participantsSource','description','descriptionSource','dateUncertain'].filter(p=>source[p]!==undefined).map(p=>[p,source[p]]))};
         states.items.push(x);old.set(String(id),x);added++;
       }
     }
@@ -925,7 +977,7 @@
           }else{
             const ep=parseEpisode(doc,existing.id,sections[section.id]||section,{title:existing.title});
             const overrides=existing.override||{};
-            for(const key of ['title','date','participants','view','notes','url']){
+            for(const key of ['title','date','participants','description','view','notes','url']){
               if(overrides[key])ep[key]=existing[key];
             }
             ep.override=overrides;ep.status=defaultStatus(section.id);ep.dateKey=dateInfo(ep.date).key;
@@ -962,6 +1014,7 @@
     form.elements.status.disabled=Boolean(item && !item.manual);
     form.elements.category.disabled=Boolean(item && !item.manual);
     form.elements.participants.value=item?.participants||'';
+    form.elements.description.value=item?.description||'';
     form.elements.notes.value=item?.notes||'';
     byId('ssc-form-title').textContent=item?'Редактировать эпизод':'Добавить эпизод';
     byId('ssc-delete').hidden=!item;
@@ -1042,21 +1095,10 @@
     if(item){item.view=col.dataset.view;item.reviewOnly=false;item.reviewReason='';item.override={...item.override,view:true};item.viewUncertain=false;save();render();showStatus('Эпизод перенесён в «'+VIEW[item.view]+'».');}dragging=null;
   });
   for(const root of [byId('ssc-board')])root.addEventListener('click',e=>{const b=e.target.closest('[data-edit]');if(b)edit(b.dataset.edit);});
-  const onCardChange=e=>{
-    const el=e.target.closest('select[data-field]');if(!el)return;
-    const item=states.items.find(x=>x.id===el.dataset.id);if(!item)return;
-    if(el.dataset.field==='status'&&STATUS[el.value]&&item.manual){item.status=el.value;item.override={...item.override,status:true};item.statusUncertain=false;}
-    else if(el.dataset.field==='view'&&VIEW[el.value]){
-      item.view=el.value;item.reviewOnly=false;item.reviewReason='';item.viewUncertain=false;
-      item.override={...item.override,view:true};
-    }
-    save();render();
-  };
-  for(const root of [byId('ssc-board')])root.addEventListener('change',onCardChange);
   byId('ssc-cancel').addEventListener('click',closeEdit);
   byId('ssc-form').addEventListener('submit',e=>{
     e.preventDefault();const f=e.target;
-    const next={title:normalize(f.elements.title.value),url:normalize(f.elements.url.value),date:normalize(f.elements.date.value),participants:normalize(f.elements.participants.value),notes:normalize(f.elements.notes.value),category:f.elements.category.value,view:f.elements.view.value,status:f.elements.status.value};
+    const next={title:normalize(f.elements.title.value),url:normalize(f.elements.url.value),date:normalize(f.elements.date.value),participants:normalize(f.elements.participants.value),description:normalize(f.elements.description.value),notes:normalize(f.elements.notes.value),category:f.elements.category.value,view:f.elements.view.value,status:f.elements.status.value};
     if(!next.title)return;
     if(next.url&&!safeURL(next.url)){showStatus('Ссылка должна вести на safespace.rusff.me');return;}
     if(!states.id){showStatus('Сначала введите ID персонажа.');return;}
