@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v8 · фиксированная классификация 7 игровых разделов.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v9 · потоковая проверка ссылок и диагностика.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -22,8 +22,8 @@
   const defaultStatus = id => SECTION_RULES[Number(id)]?.status || 'unknown';
   const CAT = {personal:'Личные эпизоды',plot:'Сюжетные эпизоды',alternative:'Альтернативные эпизоды',archived:'Заброшенные эпизоды'};
   const STATUS = {unknown:'Не определён',ongoing:'В процессе',finished:'Закрыт',abandoned:'Заброшен'};
-  const MAX_SEARCH_PAGES = 350;
-  const MAX_EPISODES = 2500;
+  const MAX_SEARCH_PAGES = 400;
+  const MAX_EPISODES = 4000;
   const STORAGE_KEY = 'safe-space-chronology-v2-';
   const LEGACY_KEY = 'safe-space-chronology-v1-';
   const VIEW = {timeline:'Хронология',alternative:'Альтернатива',unfinished:'Незавершённые'};
@@ -363,13 +363,20 @@
     #ssc-overlay .ssc-hint{border-radius:4px;background:#544154;color:#f1cee6;padding:3px 6px;margin-left:5px;font:10px/1.3 Arial,sans-serif}
     @media(max-width:720px){#ssc-overlay .ssc-review .ssc-card{grid-template-columns:1fr}}
   `;
-  const style=document.createElement('style');style.textContent=css+stepCSS; document.head.appendChild(style);
+  const diagnosticCSS=`
+  #ssc-overlay .ssc-diagnostic{border-bottom:1px solid #53415d;padding:7px 24px;background:#2b2133;color:#e1d1e5;font:12px Arial,sans-serif}
+  #ssc-overlay .ssc-diagnostic summary{cursor:pointer;color:#edc4a2;padding:4px 0}
+  #ssc-overlay .ssc-diagnostic pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1d1725;border:1px solid #57445a;border-radius:6px;color:#d3c1d7;padding:11px;max-height:220px;overflow:auto;font:11px/1.6 Consolas,monospace}
+  #ssc-overlay .ssc-diagnostic button{margin:0 0 7px}
+  `;
+  const style=document.createElement('style');style.textContent=css+stepCSS+diagnosticCSS; document.head.appendChild(style);
   const overlay=document.createElement('div');overlay.id='ssc-overlay';overlay.innerHTML=`<div class="ssc-shell" role="dialog" aria-modal="true" aria-label="Хронология персонажа">
     <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Только 7 игровых разделов · закрыты 17/18/19 · заброшен 22</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
       <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">1. Найти ссылки</button><button id="ssc-enrich" class="ssc-btn" type="button">2. Заполнить данные</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><button id="ssc-verify" class="ssc-btn" type="button" title="Открыть поиск сообщений этого ID на RusFF">Проверить поиск</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
+    <details id="ssc-diagnostic" class="ssc-diagnostic"><summary>Диагностика поиска · почему ссылка не добавлена?</summary><pre id="ssc-diagnostic-report">Для начала нажмите «1. Найти ссылки».</pre><button type="button" class="ssc-btn" id="ssc-copy-report">Копировать отчёт</button></details>
     <div class="ssc-legend" id="ssc-settings">#5, #8 — в процессе · #9 — альтернатива · #17, #18 — закрыты · #19 — закрытая альтернатива · #22 — заброшены</div><div id="ssc-section-rules" hidden></div>
-    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 находит ссылки по ID и проверяет каждую тему: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Ошибка чтения шапки не удаляет подтверждённую ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
+    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Ошибка чтения шапки не удаляет подтверждённую ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
     <div class="ssc-export" id="ssc-export"><div class="ssc-exportrow"><strong>Код для форумного сообщения</strong><label>Оформление <select id="ssc-theme"><option value="night">Ночная сирень</option><option value="parchment">Старинный пергамент</option></select></label><label style="display:flex;align-items:center;gap:4px"><input id="ssc-html-tags" type="checkbox" checked> Добавить [html][/html]</label><button id="ssc-copy" type="button" class="ssc-btn ssc-primary">Копировать HTML</button><button id="ssc-download-html" type="button" class="ssc-btn">Скачать HTML</button></div><p class="ssc-exporthint">Финальный блок статичен: его можно вставить в сообщение и он будет работать без скрипта конструктора. Кнопки редактирования в пост не попадают.</p><textarea id="ssc-out" readonly></textarea><div class="ssc-preview" id="ssc-preview"></div></div>
     <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
     <div class="ssc-editor" id="ssc-editor"><form class="ssc-editbox" id="ssc-form"><h3 id="ssc-form-title">Эпизод</h3><div class="ssc-fields">
@@ -412,7 +419,7 @@
   const effectiveView=x=>VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline');
   const validSavedItem=x=>x&&x.id!=null&&CAT[x.category]&&(x.manual===true || (SECTIONS.includes(Number(x.sectionId)) && /^\d+$/.test(String(x.id))));
   const sortItems=a=>a.sort((x,y)=>(x.dateKey||'9999').localeCompare(y.dateKey||'9999') || String(x.title||'').localeCompare(String(y.title||''),'ru'));
-  function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme}));}catch(e){showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
+  function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme}));states.storageError=false;}catch(e){states.storageError=true;if(!states.scanning)showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
   function restore(id){
     states.id=String(id);states.items=[];states.name='';states.sections={};states.theme='night';
     try{
@@ -579,90 +586,139 @@
     states.scanning=b;byId('ssc-scan').disabled=b;byId('ssc-enrich').disabled=b;
     byId('ssc-stop').disabled=!b;byId('ssc-user').disabled=b;
   };
+  // Searching is incremental: never hold all links until the last search page.
+  // Each verified game topic appears immediately, while the search continues.
   async function scan(){
     const id=String(byId('ssc-user').value||'').trim();
     if(!/^\d{1,12}$/.test(id)||Number(id)<1){showStatus('Введите числовой ID игрока из profile.php?id=...');return;}
-    if(!isForum()){showStatus('Поиск работает только на Safe Space, под авторизованным аккаунтом.');return;}
+    if(!isForum()){showStatus('Поиск работает только внутри темы #1364 на форуме Safe Space.');return;}
     if(states.id!==id)restore(id);
     states.errors=[];controller=new AbortController();setBusy(true);
-    const candidates=new Map(),pids=new Map(),verified=new Map(),visited=new Set();
-    let totalPages=0,checked=0,excluded=0,errors=0;
-    try{
-      showStatus('Шаг 1: собираю ссылки из результатов поиска по ID…');
-      const modes=['show_user_posts','show_user_topics'];
-      for(const mode of modes){
-        const queue=[forumUrl('/search.php?action='+mode+'&user_id='+encodeURIComponent(id))];
-        while(queue.length&&totalPages<MAX_SEARCH_PAGES){
-          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-          const url=queue.shift();if(visited.has(url))continue;visited.add(url);
-          let result;try{result=await getPage(url);}catch(e){states.errors.push('Поиск '+mode+': '+e.message);break;}
-          const x=searchLinks(result.doc,id,mode);
-          for(const [key,value] of x.topics){const prev=candidates.get(key);if(!prev||value.title.length>prev.title.length)candidates.set(key,value);}
-          for(const [key,value] of x.pids){if(!pids.has(key))pids.set(key,value);}
-          for(const p of x.pages){if(!visited.has(p)&&!queue.includes(p))queue.push(p);}
-          totalPages++;
-          showStatus(`Поиск: ${totalPages} страниц · ${candidates.size} ссылок на темы · ${pids.size} ссылок на сообщения`);
-          await pause(75);
+    let totalPages=0, linkCount=0, checked=0, pidChecked=0, excluded=0, errors=0;
+    const verified=new Map(), checkedTopics=new Set(), checkedPids=new Set(), visitedSearch=new Set();
+    const events=[];
+    const report=(message)=>{
+      const tm=new Date().toLocaleTimeString('ru-RU',{hour12:false});
+      events.push(tm+'  '+message);
+      if(events.length>100)events.shift();
+      const output=byId('ssc-diagnostic-report');if(output)output.textContent=[
+        'ID персонажа: '+id,
+        'Игровые разделы: '+SECTIONS.join(', '),
+        'Страниц поиска: '+totalPages,
+        'Ссылок в результатах: '+linkCount,
+        'Проверено тем: '+checked+', ссылок на сообщения: '+pidChecked,
+        'Подтверждено игровых тем: '+verified.size,
+        'Отклонено чужих разделов / неопознанных тем: '+excluded,
+        'Ошибок запросов: '+errors,
+        '',
+        'Последние события:',...events
+      ].join('\n');
+    };
+    const advance=(what)=>showStatus(`${what} · ${verified.size} эпизодов найдено · страниц ${totalPages} · ошибок ${errors}`);
+    const verifyTopic=async(source)=>{
+      const topic=String(source.id||'');
+      if(!/^\d+$/.test(topic)||topic==='1364'||checkedTopics.has(topic)||verified.has(topic))return;
+      checkedTopics.add(topic);checked++;
+      try{
+        const {doc}=await getPage('/viewtopic.php?id='+topic);
+        const section=exactGameSection(doc);
+        if(section){
+          verified.set(topic,{...source,id:topic,section});
+          rememberVerified(new Map([[topic,verified.get(topic)]]));
+          report('✓ Тема #'+topic+' → раздел #'+section.id);
+          advance('Проверяю игровые темы');
+        }else{excluded++;report('— Тема #'+topic+' не входит в 7 разделов (или не удалось прочитать навигацию)');}
+      }catch(e){errors++;states.errors.push('Тема #'+topic+': '+e.message);report('! Тема #'+topic+': '+e.message);}
+      if(checked%3===0)await pause(45);
+    };
+    const verifyPid=async(source)=>{
+      if(checkedPids.has(String(source.pid)))return;
+      checkedPids.add(String(source.pid));pidChecked++;
+      try{
+        const {doc,finalUrl}=await getPage(source.url);
+        const topic=episodeIdFromPage(doc,finalUrl),section=exactGameSection(doc);
+        if(topic&&section&&topic!=='1364'){
+          checkedTopics.add(String(topic));
+          if(!verified.has(String(topic))){
+            const candidate={id:String(topic),title:source.title||'',section};
+            verified.set(String(topic),candidate);
+            rememberVerified(new Map([[String(topic),candidate]]));
+            report('✓ Сообщение #'+source.pid+' → тема #'+topic+', раздел #'+section.id);
+            advance('Собираю ссылки на игровые эпизоды');
+          }
+        }else{
+          excluded++;
+          if(pidChecked<=12||pidChecked%30===0)report('— Сообщение #'+source.pid+': игровая тема не подтверждена');
         }
+      }catch(e){errors++;states.errors.push('Сообщение #'+source.pid+': '+e.message);if(errors<=18)report('! Сообщение #'+source.pid+': '+e.message);}
+      if(pidChecked%3===0)await pause(45);
+    };
+    const searchMode=async(initial,mode,label)=>{
+      const queue=[initial],seen=new Set();
+      advance(label);
+      report('Открываю '+label+' ('+initial+')');
+      while(queue.length&&totalPages<MAX_SEARCH_PAGES){
+        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+        const url=queue.shift();if(seen.has(url)||visitedSearch.has(url))continue;
+        seen.add(url);visitedSearch.add(url);
+        let result;
+        try{result=await getPage(url);}catch(e){
+          errors++;states.errors.push(label+': '+e.message);report('! '+label+': '+e.message);break;
+        }
+        const x=searchLinks(result.doc,id,mode);
+        totalPages++;linkCount+=x.topics.size+x.pids.size;
+        report(label+': страница '+totalPages+'; ссылок на темы '+x.topics.size+', сообщений '+x.pids.size);
+        // Discover pagination first so results will not be lost if the user presses Stop.
+        for(const p of x.pages){if(!seen.has(p)&&!queue.includes(p))queue.push(p);}
+        if(!x.topics.size&&!x.pids.size){
+          let explanation=metadataFromSearch(result.doc)?'пустая выдача':
+            ('нет ссылок в ответе (возможно, вход в аккаунт, запрет доступа или другой формат поиска); заголовок: '+normalize(result.doc.title||'без заголовка').slice(0,90));
+          report('! Поиск не вернул ссылок: '+explanation);
+        }
+        // Verify direct topic links first; quickly show progress in the UI.
+        for(const source of x.topics.values()){
+          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+          if(checkedTopics.size>=MAX_EPISODES)break;
+          await verifyTopic(source);
+        }
+        // A link with ?pid= is a post, not a topic. Resolve it only if necessary.
+        for(const source of x.pids.values()){
+          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+          if(checkedPids.size>=MAX_EPISODES)break;
+          await verifyPid(source);
+        }
+        advance(label);
+        if(checkedPids.size>=MAX_EPISODES||checkedTopics.size>=MAX_EPISODES){
+          report('! Защитный лимит '+MAX_EPISODES+' запросов. Возможно, результаты неполные.');break;
+        }
+        await pause(90);
       }
+    };
+    try{
+      report('Начинаю поиск. Карточки добавляются немедленно после проверки раздела.');
+      // First try topic-oriented author search; often finds the same episodes with fewer requests.
       const author=normalize((states.name||await loadProfile(id))||'').replace(/^профиль(?: пользователя)?\s*[:—–-]\s*/i,'');
-      if(author.length>1&&author.length<70&&!/^(профиль|информация|пользователь)$/i.test(author)&&totalPages<MAX_SEARCH_PAGES){
+      if(author.length>1&&author.length<70&&!/^(профиль|информация|пользователь)$/i.test(author)){
         states.name=author;
         const params=new URLSearchParams({action:'search',author,search_in:'all',show_as:'topics'});
         for(const n of SECTIONS)params.append('forums[]',String(n));
-        const queue=[forumUrl('/search.php?'+params.toString())];
-        while(queue.length&&totalPages<MAX_SEARCH_PAGES){
-          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-          const url=queue.shift();if(visited.has(url))continue;visited.add(url);
-          let result;try{result=await getPage(url);}catch(e){states.errors.push('Дополнительный поиск: '+e.message);break;}
-          const x=searchLinks(result.doc,id,'search');
-          for(const [key,value] of x.topics){const prev=candidates.get(key);if(!prev||value.title.length>prev.title.length)candidates.set(key,value);}
-          for(const [key,value] of x.pids){if(!pids.has(key))pids.set(key,value);}
-          for(const p of x.pages){if(!visited.has(p)&&!queue.includes(p))queue.push(p);}
-          totalPages++;await pause(75);
-        }
-      }
-      // PID links must be resolved to topic ID, and section validated before saving.
-      let resolved=0;
-      for(const source of pids.values()){
-        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-        if(resolved>=MAX_EPISODES)break;
-        try{
-          const {doc,finalUrl}=await getPage(source.url);
-          const topic=episodeIdFromPage(doc,finalUrl),section=exactGameSection(doc);
-          if(topic&&section&&topic!=='1364'){
-            if(!verified.has(topic))verified.set(topic,{id:topic,title:source.title,section});
-          }else excluded++;
-        }catch(e){errors++;states.errors.push('Сообщение #'+source.pid+': '+e.message);}
-        resolved++;
-        if(resolved%5===0){rememberVerified(verified);showStatus(`Проверка сообщений: ${resolved}/${pids.size} · подтверждено ${verified.size} игровых тем`);}
-        await pause(45);
-      }
-      rememberVerified(verified);
-      // A topic link is only accepted when its OWN final forum breadcrumb matches 7 IDs.
-      for(const [topic,source] of candidates){
-        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-        if(verified.size>=MAX_EPISODES){states.errors.push('Достигнут предел '+MAX_EPISODES+' игровых тем.');break;}
-        if(verified.has(topic)||topic==='1364')continue;
-        checked++;
-        try{
-          const {doc}=await getPage('/viewtopic.php?id='+topic);
-          const section=exactGameSection(doc);
-          if(section){verified.set(topic,{...source,section});}
-          else excluded++;
-        }catch(e){errors++;states.errors.push('Тема #'+topic+': '+e.message);}
-        if(checked%5===0){rememberVerified(verified);showStatus(`Проверено ${checked} тем · ${verified.size} в 7 игровых разделах · прочие отброшены: ${excluded}`);}
-        await pause(45);
-      }
-      rememberVerified(verified);
-      save();render();
-      showStatus(`Готово: ${verified.size} игровых тем в разделах 5, 8, 9, 17, 18, 19, 22 · исключено ${excluded} посторонних · ошибки чтения ${errors}.`);
-      if(totalPages>=MAX_SEARCH_PAGES)states.errors.push('Лимит страниц поиска: найденные темы могут быть неполными.');
-      if(states.errors.length)console.warn('Safe Space chronology:',states.errors);
+        await searchMode(forumUrl('/search.php?'+params.toString()),'search','Поиск тем по автору в 7 разделах');
+      }else report('Имя профиля не распознано; продолжаю поиск по ID.');
+      // Topics started by user; these can be verified cheaply.
+      await searchMode(forumUrl('/search.php?action=show_user_topics&user_id='+encodeURIComponent(id)),'show_user_topics','Темы, созданные персонажем');
+      // Posts of user also reveal topics started by other players.
+      await searchMode(forumUrl('/search.php?action=show_user_posts&user_id='+encodeURIComponent(id)),'show_user_posts','Эпизоды, где персонаж оставлял сообщения');
+      rememberVerified(verified);save();render();
+      report('Сканирование закончено. Найдено '+verified.size+' игровых эпизодов.');
+      showStatus('Готово: '+verified.size+' игровых эпизодов · просмотрено '+totalPages+' страниц поиска · отклонено '+excluded+' · ошибки '+errors+'. Подробности — в «Диагностике поиска».');
+      if(totalPages>=MAX_SEARCH_PAGES)report('! Достигнут предел страниц; поиск может быть неполным.');
     }catch(e){
-      if(e.name==='AbortError')showStatus(`Остановлено. Подтверждено ${verified.size} игровых тем.`);
-      else{states.errors.push(e.message);showStatus('Ошибка поиска: '+e.message);}
-    }finally{rememberVerified(verified);save();render();setBusy(false);controller=null;}
+      if(e.name==='AbortError'){report('Поиск остановлен вручную; уже найденные эпизоды сохранены.');showStatus('Остановлено · найдено '+verified.size+' эпизодов.');}
+      else{states.errors.push(e.message);errors++;report('! Ошибка поиска: '+e.message);showStatus('Ошибка поиска: '+e.message+'. Откройте «Диагностику поиска».');}
+    }finally{
+      rememberVerified(verified);save();render();report('Найденные игровые ссылки сохранены.');
+      setBusy(false);controller=null;
+    }
   }
   async function enrich(){
     const id=String(byId('ssc-user').value||'').trim();
@@ -738,6 +794,11 @@
   overlay.addEventListener('click',e=>{if(e.target===overlay&&!isTargetTopic)overlay.classList.remove('is-open');});
   byId('ssc-user').addEventListener('change',e=>{if(/^\d+$/.test(e.target.value)&&!states.scanning)restore(e.target.value);});
   byId('ssc-scan').addEventListener('click',scan);
+  byId('ssc-copy-report').addEventListener('click',async()=>{
+    const value=byId('ssc-diagnostic-report').textContent;
+    try{await navigator.clipboard.writeText(value);showStatus('Отчёт скопирован.');}
+    catch(e){const box=byId('ssc-diagnostic-report');const range=document.createRange();range.selectNodeContents(box);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);showStatus('Выделила отчёт — скопируйте Ctrl+C.');}
+  });
   byId('ssc-enrich').addEventListener('click',enrich);
   byId('ssc-verify').addEventListener('click',()=>{
     const id=String(byId('ssc-user').value||'').trim();
