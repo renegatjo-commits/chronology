@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v11 · обязательная проверка авторства каждого эпизода.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v12 · даты из названий, участники из первого поста, скрытие эпизодов.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -54,36 +54,76 @@
   function forumId(link) {
     try {const u=new URL(link,forumUrl('/'));return u.pathname.endsWith('/viewforum.php')?Number(u.searchParams.get('id'))||null:null;}catch(e){return null;}
   }
+  // Игровая дата берётся ПРЕЖДЕ ВСЕГО из начала названия темы.
+  // 02.09-10.09.1971 сортируется по 02.09.1971, а не по последнему дню.
+  function actualDateKey(y,m,d) {
+    y=Number(y);m=Number(m);d=Number(d);
+    const check=new Date(Date.UTC(y,m-1,d));
+    return check.getUTCFullYear()===y && check.getUTCMonth()===m-1 && check.getUTCDate()===d
+      ? String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0') : '';
+  }
   function dateInfo(value) {
-    let s=normalize(value).toLowerCase().replace(/ё/g,'е');
-    if(!s) return {key:'9999-99-99', display:'Дата не указана', precision:'none'};
-    const out=(y,m,d,precision)=>({key:String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'),display:normalize(value),precision});
-    let m=s.match(/\b((?:18|19|20)\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b/);
-    if(m&&+m[2]<=12&&+m[3]<=31)return out(+m[1],+m[2],+m[3],'day');
+    const original=normalize(value);
+    const s=original.toLowerCase().replace(/ё/g,'е');
+    const empty={key:'9999-99-99',display:original||'Дата не указана',precision:original?'unknown':'none'};
+    if(!s)return empty;
+    let m;
+    // 02.09.1971–10.09.1971
+    m=s.match(/(?:^|\s)(\d{1,2})\s*[./]\s*(\d{1,2})\s*[./]\s*((?:18|19|20)\d{2})\s*[-–—]\s*\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2}\b/);
+    if(m){const k=actualDateKey(m[3],m[2],m[1]);if(k)return {key:k,display:original,precision:'range'};}
+    // 02.09–10.09.1971
+    m=s.match(/(?:^|\s)(\d{1,2})\s*[./]\s*(\d{1,2})\s*(?:[./]\s*((?:18|19|20)\d{2}))?\s*[-–—]\s*(\d{1,2})\s*[./]\s*(\d{1,2})\s*[./]\s*((?:18|19|20)\d{2})\b/);
+    if(m){const k=actualDateKey(m[3]||m[6],m[2],m[1]);if(k)return {key:k,display:original,precision:'range'};}
+    // 01–03.09.1979
+    m=s.match(/(?:^|\s)(\d{1,2})\s*[-–—]\s*\d{1,2}\s*[./]\s*(\d{1,2})\s*[./]\s*((?:18|19|20)\d{2})\b/);
+    if(m){const k=actualDateKey(m[3],m[2],m[1]);if(k)return {key:k,display:original,precision:'range'};}
+    m=s.match(/\b((?:18|19|20)\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b/);
+    if(m){const k=actualDateKey(m[1],m[2],m[3]);if(k)return {key:k,display:original,precision:'day'};}
     m=s.match(/\b(\d{1,2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*((?:18|19|20)\d{2})\b/);
-    if(m&&+m[2]<=12&&+m[1]<=31)return out(+m[3],+m[2],+m[1],'day');
+    if(m){const k=actualDateKey(m[3],m[2],m[1]);if(k)return {key:k,display:original,precision:'day'};}
     m=s.match(/\b(\d{1,2})(?:\s*[-–—]\s*\d{1,2})?\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\s+((?:18|19|20)\d{2})\b/);
-    if(m&&+m[1]<=31)return out(+m[3],MONTHS[m[2]],+m[1],'day');
+    if(m){const k=actualDateKey(m[3],MONTHS[m[2]],m[1]);if(k)return {key:k,display:original,precision:'day'};}
     m=s.match(/\b(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\s+((?:18|19|20)\d{2})\b/);
-    if(m) return out(+m[2],MONTHS[m[1]],15,'month');
+    if(m){const k=actualDateKey(m[2],MONTHS[m[1]],15);if(k)return {key:k,display:original,precision:'month'};}
     m=s.match(/\b(весна|весной|лето|летом|осень|осенью|зима|зимой)\s+((?:18|19|20)\d{2})\b/);
-    if(m) return out(+m[2],({весна:4,весной:4,лето:7,летом:7,осень:10,осенью:10,зима:1,зимой:1})[m[1]],15,'season');
+    if(m){const k=actualDateKey(m[2],({весна:4,весной:4,лето:7,летом:7,осень:10,осенью:10,зима:1,зимой:1})[m[1]],15);if(k)return {key:k,display:original,precision:'season'};}
     m=s.match(/\b((?:18|19|20)\d{2})\b/);
-    if(m)return out(+m[1],7,1,'year');
-    return {key:'9999-99-99',display:normalize(value),precision:'unknown'};
+    if(m)return {key:String(m[1])+'-07-01',display:original,precision:'year'};
+    return empty;
+  }
+  function dateFromTitle(title) {
+    // Принимать только дату В НАЧАЛЕ заголовка, чтобы год внутри названия не был принят за дату игры.
+    const s=normalize(title).replace(/^[\[(]\s*/,'');
+    const options=[
+      /^(\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2})\s*[-–—]\s*(\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2})/,
+      /^(\d{1,2}\s*[./]\s*\d{1,2}\s*[-–—]\s*\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2})/,
+      /^(\d{1,2}\s*[-–—]\s*\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2})/,
+      /^(\d{1,2}\s*[./]\s*\d{1,2}\s*[./]\s*(?:18|19|20)\d{2})/,
+      /^(\d{4}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{1,2})/,
+      /^(\d{1,2}(?:\s*[-–—]\s*\d{1,2})?\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(?:18|19|20)\d{2})/i,
+      /^((?:весна|лето|осень|зима)\s+(?:18|19|20)\d{2})/i
+    ];
+    for(const re of options){
+      const m=s.match(re);
+      if(!m)continue;
+      let d=normalize(m[0]);
+      const info=dateInfo(d);
+      if(info.precision!=='none'&&info.precision!=='unknown')return {date:d,dateKey:info.key,dateSource:'title'};
+    }
+    return null;
   }
   function extractDate(text,title) {
+    const fromTitle=dateFromTitle(title);
+    if(fromTitle)return fromTitle;
     const lines=String(text||'').split(/\n/).map(normalize).filter(Boolean);
-    const tagged=lines.filter(s=>/(?:^|\b)(?:дата|время|когда|действие|период|date|time)\s*[:—–-]/i.test(s));
-    const candidates=[...tagged.slice(0,8), title, ...lines.slice(0,18)];
-    for(const c of candidates){
-      // The year of the actual game must come from the episode body, not the post timestamp.
-      const i=dateInfo(c);if(i.precision!=='none'&&i.precision!=='unknown'){
-        const d=c.replace(/^.*?(?:дата|время|когда|период|date|time)\s*[:—–-]\s*/i,'').slice(0,110);
-        return {date:normalize(d),dateKey:i.key};
-      }
+    const tagged=lines.filter(s=>/^(?:дата(?: и место)?|время|когда|период|date|time)\s*[:—–-]/i.test(s));
+    // Не использовать все подряд строки первого сообщения: в нём часто есть годы биографии.
+    for(const c of tagged.slice(0,12)){
+      const v=normalize(c.replace(/^(?:дата(?: и место)?|время|когда|период|date|time)\s*[:—–-]\s*/i,'').split(/(?:место|локация|описание эпизода)\s*:/i)[0]).slice(0,90);
+      const info=dateInfo(v);
+      if(info.precision!=='none'&&info.precision!=='unknown')return {date:v,dateKey:info.key,dateSource:'post'};
     }
-    return {date:'',dateKey:'9999-99-99'};
+    return {date:'',dateKey:'9999-99-99',dateSource:'missing'};
   }
   function categoryFor(text) {
     const s=normalize(text).toLowerCase().replace(/ё/g,'е');
@@ -125,6 +165,10 @@
     // Old scan results stored the text of a search-result author as title.
     // Do not present it as an episode title until a real viewtopic is read.
     if(!x.titleFromTopic && !x.detailLoaded && !x.override?.title)x.title='Эпизод #'+x.id;
+    if(!x.override?.date){
+      const titleDate=dateFromTitle(x.title||'');
+      if(titleDate){x.date=titleDate.date;x.dateKey=titleDate.dateKey;x.dateSource='title';x.dateUncertain=false;}
+    }
     x.status=section.status;
     x.statusUncertain=false;
     // Old versions had #19 in the main chronology and #22 as 'ongoing'.
@@ -171,24 +215,48 @@
     });
     return [...authors.values()];
   }
-  function extractParticipants(firstText,title,authors) {
-    const lines=String(firstText||'').split(/\n/).map(normalize).filter(Boolean);
-    const tagged=lines.find(s=>/^(?:участники|действующие лица|игроки|персонажи|с кем|кто|participants|characters)\s*[:—–-]/i.test(s));
-    let p=tagged?tagged.replace(/^(?:участники|действующие лица|игроки|персонажи|с кем|кто|participants|characters)\s*[:—–-]\s*/i,''):'';
-    if(!p){const t=String(title).replace(/\[[^\]]+\]/g,' ');if(/\s(?:&|×|\bx\b)\s/i.test(t))p=t;}
-    if(!p){return {participants:authors.join(', '),source:'Авторы сообщений (не все участники могут быть видны)'};}
-    p=normalize(p).slice(0,350);
-    return {participants:p,source:'Шапка эпизода / заголовок'};
+  function firstPostBody(doc){
+    const first=doc.querySelector('#pun-viewtopic .post, #pun-main .post');
+    return first?.querySelector('.post-content,.post-body,.post-inner .entry-content')||null;
+  }
+  function firstPostLines(doc) {
+    const src=firstPostBody(doc);
+    if(!src)return [];
+    const c=src.cloneNode(true);
+    select(c,'script,style,.post-sig,.signature,blockquote,.quote, .spoiler, .hvmask').forEach(n=>n.remove());
+    select(c,'br,hr').forEach(n=>n.replaceWith(document.createTextNode('\n')));
+    select(c,'p,div,li,tr,h1,h2,h3,h4,h5,header,center').forEach(n=>n.appendChild(document.createTextNode('\n')));
+    return c.textContent.split(/\n/).map(normalize).filter(Boolean).slice(0,100);
+  }
+  function extractParticipants(firstText,title,authors,doc) {
+    // ONLY the opening post; never infer participants from all message authors.
+    const lines=doc?firstPostLines(doc):String(firstText||'').split(/\n/).map(normalize).filter(Boolean);
+    const tag=/^(?:участники(?: эпизода)?|действующие лица|игроки|персонажи|с кем|кто|participants|characters)\s*[:—–-]\s*/i;
+    for(let i=0;i<Math.min(65,lines.length);i++){
+      const line=lines[i];
+      if(!tag.test(line))continue;
+      const value=normalize(line.replace(tag,'')||lines[i+1]||'');
+      if(value && value.length<260 && !/^(?:дата|время|место|описание)/i.test(value))
+        return {participants:value,source:'Первое сообщение: список участников'};
+    }
+    // Стилизованная шапка эпизода: EVAN ROSIER & WHISPER WHISP (в т. ч. внутри div/span).
+    const clean=s=>normalize(s.replace(/^(?:\d{1,2}\.\d{1,2}\.\d{4}\s*)/,'').replace(/[«»]/g,''));
+    const pair=/[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+(?:\s+[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+){0,3}\s*(?:&|×|\+|\s+и\s+|\s+and\s+)\s*[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+(?:\s+[А-ЯЁA-Z][А-ЯЁа-яёA-Za-z'’\-]+){0,3}/i;
+    const body=doc?firstPostBody(doc):null;
+    const prominent=body?select(body,'h1,h2,h3,h4,h5,center,strong,b,[class*="participant"],[class*="player"],[class*="episode"]')
+      .map(getText).filter(Boolean):[];
+    for(const line of [...prominent,...lines.slice(0,50)]){
+      const value=clean(line);
+      if(value.length<7||value.length>170||/^(?:дата|время|место|описание|локация|погода|время года)/i.test(value))continue;
+      if(pair.test(value)){
+        const m=value.match(pair);
+        return {participants:normalize(m?.[0]||value).slice(0,220),source:'Первое сообщение: заголовок с именами'};
+      }
+    }
+    return {participants:'',source:'Участники в первом сообщении не распознаны'};
   }
   function findPostContent(doc) {
-    const first=doc.querySelector('#pun-viewtopic .post, #pun-main .post');
-    if(!first)return '';
-    const contents=first.querySelector('.post-content,.post-body,.post-inner .entry-content');
-    if(!contents)return first.textContent||'';
-    const c=contents.cloneNode(true);
-    select(c,'br').forEach(n=>n.replaceWith(document.createTextNode('\n')));
-    select(c,'p,div,li,tr,blockquote,h1,h2,h3').forEach(n=>n.appendChild(document.createTextNode('\n')));
-    return c.textContent||'';
+    return firstPostLines(doc).join('\n');
   }
   // Trust the title from the actual VIEWTOPIC document only. Search result
   // anchors often point to post authors and are NOT episode names.
@@ -230,11 +298,11 @@
     const category=categoryForSection(section.id,crumbs);
     const date=extractDate(firstText,title);
     const authors=parseAuthors(doc);
-    const participant=extractParticipants(firstText,title,authors);
+    const participant=extractParticipants(firstText,title,authors,doc);
     return {
       id:String(id),title,url:topicURL(id),titleFromTopic:!title.startsWith('Эпизод #'),category,
       view:viewForSection(section.id),
-      status:defaultStatus(section.id),date:date.date,dateKey:date.dateKey,
+      status:defaultStatus(section.id),date:date.date,dateKey:date.dateKey,dateSource:date.dateSource,
       detailLoaded:true,reviewOnly:false,participants:participant.participants,
       participantsSource:participant.source,sectionId:section.id,sectionName:section.label,
       statusUncertain:false,viewUncertain:false,dateUncertain:!date.date,
@@ -319,7 +387,7 @@
     const m=html.match(/\b(?:TopicID|topic_id|topicId)\s*[:=]\s*['"]?(\d{1,10})\b/);
     return m?m[1]:null;
   }
-  let states={id:'',items:[],status:'Готово к сбору',scanning:false,errors:[],name:'',log:'',showExport:false,filter:'',profile:null};
+  let states={id:'',items:[],hiddenIds:[],status:'Готово к сбору',scanning:false,errors:[],name:'',log:'',showExport:false,filter:'',profile:null};
   const css=`
   #ssc-launch,#ssc-overlay{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
   #ssc-launch{position:fixed;z-index:2147483640;right:20px;bottom:22px;background:#392a46;border:1px solid #be9d81;color:#fff3e6;border-radius:13px;padding:12px 17px;box-shadow:0 10px 38px #0009;font:600 13px Georgia,serif;cursor:pointer}
@@ -370,6 +438,8 @@
   #ssc-overlay .ssc-card-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
   #ssc-overlay .ssc-card-controls select{font-size:11px!important;padding:6px!important;max-width:150px}
   #ssc-overlay .ssc-mini{background:transparent;color:#e8cbe6;border:1px solid #745b7b;padding:6px 8px;border-radius:7px}
+  #ssc-overlay .ssc-remove{border-color:#9b6a79;color:#eac2c9}
+  #ssc-overlay .ssc-remove:hover{background:#573440;color:#fff}
   #ssc-overlay .ssc-flag{font:10px/1.5 Arial,sans-serif;color:#e5b48f;display:block;margin-top:6px}
   #ssc-overlay .ssc-empty{color:#9d8fa2;font:12px/1.6 Arial,sans-serif;text-align:center;padding:17px 10px}
   #ssc-overlay .ssc-footer{padding:10px 24px;border-top:1px solid #493951;background:#241c2e;color:#b0a3b5;font:11px/1.5 Arial,sans-serif}
@@ -427,13 +497,13 @@
   const style=document.createElement('style');style.textContent=css+stepCSS+diagnosticCSS; document.head.appendChild(style);
   const overlay=document.createElement('div');overlay.id='ssc-overlay';overlay.innerHTML=`<div class="ssc-shell" role="dialog" aria-modal="true" aria-label="Хронология персонажа">
     <div class="ssc-head"><div class="ssc-heading"><div><div class="ssc-kicker">Marauders · Safe Space</div><h2>Хронология персонажа</h2><p class="ssc-sub">Только 7 игровых разделов · закрыты 17/18/19 · заброшен 22</p></div><button class="ssc-close" type="button" id="ssc-close" title="Закрыть">×</button></div>
-      <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">1. Найти ссылки</button><button id="ssc-enrich" class="ssc-btn" type="button">2. Заполнить данные</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><button id="ssc-verify" class="ssc-btn" type="button" title="Открыть поиск сообщений этого ID на RusFF">Проверить поиск</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
+      <div class="ssc-actions"><input id="ssc-user" type="number" min="1" step="1" placeholder="ID игрока" aria-label="ID игрока"><button id="ssc-scan" class="ssc-btn ssc-primary" type="button">1. Найти ссылки</button><button id="ssc-enrich" class="ssc-btn" type="button">2. Заполнить данные</button><button id="ssc-stop" class="ssc-btn" disabled type="button">Стоп</button><button id="ssc-verify" class="ssc-btn" type="button" title="Открыть поиск сообщений этого ID на RusFF">Проверить поиск</button><input id="ssc-filter" type="search" placeholder="Название / участник / дата"><button id="ssc-add" class="ssc-btn" type="button">+ Эпизод</button><button id="ssc-export-btn" class="ssc-btn" type="button">✦ Готовый HTML</button><button id="ssc-download" class="ssc-btn" type="button">JSON ↓</button><button id="ssc-import-btn" class="ssc-btn" type="button">JSON ↑</button><button id="ssc-restore-hidden" class="ssc-btn" type="button" hidden>Вернуть удалённые</button><input type="file" id="ssc-import" accept="application/json,.json" hidden></div>
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
     <details id="ssc-diagnostic" class="ssc-diagnostic"><summary>Диагностика поиска · почему ссылка не добавлена?</summary><pre id="ssc-diagnostic-report">Для начала нажмите «1. Найти ссылки».</pre><button type="button" class="ssc-btn" id="ssc-copy-report">Копировать отчёт</button></details>
     <div class="ssc-legend" id="ssc-settings">#5, #8 — в процессе · #9 — альтернатива · #17, #18 — закрыты · #19 — закрытая альтернатива · #22 — заброшены</div><div id="ssc-section-rules" hidden></div>
-    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Если автор поста не подтверждён, тема не добавляется. Ошибка чтения шапки не удаляет ранее проверенную ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
+    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Даты берутся из заголовков тем, участники — из первого сообщения. Шаг 2 уточняет данные. Если автор поста не подтверждён, тема не добавляется. Ошибка чтения шапки не удаляет ранее проверенную ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
     <div class="ssc-export" id="ssc-export"><div class="ssc-exportrow"><strong>Код для форумного сообщения</strong><label>Оформление <select id="ssc-theme"><option value="night">Ночная сирень</option><option value="parchment">Старинный пергамент</option></select></label><label style="display:flex;align-items:center;gap:4px"><input id="ssc-html-tags" type="checkbox" checked> Добавить [html][/html]</label><button id="ssc-copy" type="button" class="ssc-btn ssc-primary">Копировать HTML</button><button id="ssc-download-html" type="button" class="ssc-btn">Скачать HTML</button></div><p class="ssc-exporthint">Финальный блок статичен: его можно вставить в сообщение и он будет работать без скрипта конструктора. Кнопки редактирования в пост не попадают.</p><textarea id="ssc-out" readonly></textarea><div class="ssc-preview" id="ssc-preview"></div></div>
-    <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
+    <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Удалённые эпизоды не возвращаются при сканировании. Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
     <div class="ssc-editor" id="ssc-editor"><form class="ssc-editbox" id="ssc-form"><h3 id="ssc-form-title">Эпизод</h3><div class="ssc-fields">
       <label class="ssc-field ssc-full">Название<input name="title" required maxlength="240"></label>
       <label class="ssc-field ssc-full">Ссылка на тему<input name="url" placeholder="https://safespace.rusff.me/viewtopic.php?id=…"></label>
@@ -474,19 +544,21 @@
   const effectiveView=x=>VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline');
   const validSavedItem=(x,uid)=>x&&x.id!=null&&CAT[x.category]&&(x.manual===true || (SECTIONS.includes(Number(x.sectionId)) && /^\d+$/.test(String(x.id)) && x.verifiedAuthorId===String(uid)));
   const sortItems=a=>a.sort((x,y)=>(x.dateKey||'9999').localeCompare(y.dateKey||'9999') || String(x.title||'').localeCompare(String(y.title||''),'ru'));
-  function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme}));states.storageError=false;}catch(e){states.storageError=true;if(!states.scanning)showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
+  function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme,hiddenIds:states.hiddenIds}));states.storageError=false;}catch(e){states.storageError=true;if(!states.scanning)showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
   function restore(id){
-    states.id=String(id);states.items=[];states.name='';states.sections={};states.theme='night';
+    states.id=String(id);states.items=[];states.hiddenIds=[];states.name='';states.sections={};states.theme='night';
     try{
       const raw=localStorage.getItem(storageKey(states.id))||localStorage.getItem(LEGACY_KEY+states.id)||'null';
       const data=JSON.parse(raw);
       if(data&&Array.isArray(data.items)){
+        states.hiddenIds=[...new Set((Array.isArray(data.hiddenIds)?data.hiddenIds:[]).map(String).filter(id=>/^\d+$/.test(id)))];
         states.items=data.items.filter(x=>validSavedItem(x,states.id)).map(x=>correctedEpisode({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:{...(x.override||{})},reviewOnly:false,reviewReason:'',status:STATUS[x.status]?x.status:'ongoing',statusUncertain:false,dateKey:dateInfo(x.date).key}));
         states.name=/^marauders\s*[:·-]\s*safe space$/i.test(String(data.name||''))?'':(data.name||'');states.sections=data.sections||{};states.theme=data.theme||'night';
       }
     }catch(e){}
     states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...states.sections[n],...SECTION_RULES[n],id:n}]));
     if(byId('ssc-theme'))byId('ssc-theme').value=states.theme;
+    states.items=states.items.filter(x=>!states.hiddenIds.includes(String(x.id)));
     renderSections();render();
   }
   function showStatus(message){states.status=message;byId('ssc-progress').textContent=message;}
@@ -506,7 +578,7 @@
       const url=safeURL(x.url||'');
       const type=CAT[x.category]||'Проверьте тип';
       const flags=[x.dateUncertain?'проверьте дату':'',x.detailsError?'не удалось прочитать шапку':''].filter(Boolean);
-      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span>Участники: ${esc(x.participants||'Не определены')}</div>${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}</div><div class="ssc-card-controls"><select data-field="status" data-id="${esc(x.id)}" title="${x.manual?'Статус вручную':'Статус определяется разделом форума'}" ${x.manual?'':'disabled'}>${Object.entries(STATUS).map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}</select><select data-field="view" data-id="${esc(x.id)}" title="Переместить в раздел">${Object.entries(VIEW).map(([v,label])=>`<option value="${v}" ${!x.reviewOnly&&view===v?'selected':''}>${label}</option>`).join('')}</select><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button></div></article>`;
+      return `<article class="ssc-card" draggable="true" data-id="${esc(x.id)}"><div class="ssc-card-date">${esc(x.date||'Дата не указана')}</div><div class="ssc-card-content"><div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>`:`<span>${esc(x.title)}</span>`}</div><div class="ssc-meta"><span class="ssc-tag">${esc(type)}</span>Участники: ${esc(x.participants||'Не определены')}</div>${x.notes?`<div class="ssc-meta ssc-note">${esc(x.notes)}</div>`:''}${flags.length?`<span class="ssc-flag">⚑ ${flags.join(' · ')}</span>`:''}</div><div class="ssc-card-controls"><select data-field="status" data-id="${esc(x.id)}" title="${x.manual?'Статус вручную':'Статус определяется разделом форума'}" ${x.manual?'':'disabled'}>${Object.entries(STATUS).map(([v,label])=>`<option value="${v}" ${x.status===v?'selected':''}>${label}</option>`).join('')}</select><select data-field="view" data-id="${esc(x.id)}" title="Переместить в раздел">${Object.entries(VIEW).map(([v,label])=>`<option value="${v}" ${!x.reviewOnly&&view===v?'selected':''}>${label}</option>`).join('')}</select><button class="ssc-mini" type="button" data-edit="${esc(x.id)}">Изменить</button><button class="ssc-mini ssc-remove" type="button" data-remove="${esc(x.id)}" title="Удалить из этой хронологии и скрыть при следующих поисках">Убрать ×</button></div></article>`;
     };
     for(const [view,heading] of Object.entries(VIEW)){
       const all=sortItems(states.items.filter(x=>!x.reviewOnly&&effectiveView(x)===view));
@@ -517,6 +589,8 @@
       html+='</div></section>';
     }
     byId('ssc-board').innerHTML=html;
+    byId('ssc-restore-hidden').hidden=!states.hiddenIds.length;
+    byId('ssc-restore-hidden').textContent='Вернуть удалённые ('+states.hiddenIds.length+')';
     byId('ssc-stat').textContent=`${states.items.length} игровых эпизодов · ${states.items.filter(x=>x.status==='finished').length} закрыто · ${states.items.filter(x=>x.status==='ongoing').length} в процессе${states.name?' · '+states.name:''}`;
     if(byId('ssc-export').classList.contains('is-open'))updateExport();
   }
@@ -610,7 +684,7 @@
     const old=new Map(states.items.map(x=>[String(x.id),x]));
     for(const [id,source] of found){
       const section=source.section;
-      if(!section||!SECTIONS.includes(Number(section.id))||String(source.verifiedAuthorId)!==String(states.id))continue;
+      if(!section||!SECTIONS.includes(Number(section.id))||String(source.verifiedAuthorId)!==String(states.id)||states.hiddenIds.includes(String(id)))continue;
       let x=old.get(String(id));
       if(x){
         x.sectionId=section.id;x.sectionName=section.label;x.verifiedAuthorId=String(states.id);
@@ -623,9 +697,13 @@
         // confirmed scan. Preserve only user-edited titles.
         if(!x.override?.title && source.titleFromTopic){x.title=source.title;x.titleFromTopic=true;}
         if(!x.override?.title && !x.titleFromTopic)x.title='Эпизод #'+id;
+        for(const prop of ['date','dateKey','dateSource','participants','participantsSource','dateUncertain']){
+          if(!x.override?.[prop] && source[prop]!==undefined && (prop!=='participants'||source[prop]))x[prop]=source[prop];
+        }
         updated++;
       }else{
-        x=makeVerifiedItem(id,source,section);states.items.push(x);old.set(String(id),x);added++;
+        x={...makeVerifiedItem(id,source,section),...Object.fromEntries(['date','dateKey','dateSource','participants','participantsSource','dateUncertain'].filter(p=>source[p]!==undefined).map(p=>[p,source[p]]))};
+        states.items.push(x);old.set(String(id),x);added++;
       }
     }
     if(added||updated){save();render();}
@@ -672,9 +750,10 @@
     };
     const advance=(what)=>showStatus(`${what} · ${verified.size} эпизодов найдено · страниц ${totalPages} · ошибок ${errors}`);
     const acceptEpisode=(topic,section,doc,proof,origin)=>{
-      if(!topic||!section||!proof||topic==='1364'||verified.has(String(topic)))return false;
+      if(!topic||!section||!proof||topic==='1364'||verified.has(String(topic))||states.hiddenIds.includes(String(topic)))return false;
       const realTitle=topicTitle(doc,topic);
-      const item={id:String(topic),title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,
+      const meta=parseEpisode(doc,topic,section,{});
+      const item={...meta,id:String(topic),title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,
         section,verifiedAuthorId:id,verifiedPostId:proofPostId(proof)};
       verified.set(String(topic),item);
       rememberVerified(new Map([[String(topic),item]]));
@@ -703,7 +782,7 @@
     };
     const verifyTopic=async(source)=>{
       const topic=String(source.id||'');
-      if(!/^\d+$/.test(topic)||topic==='1364'||checkedTopics.has(topic)||verified.has(topic))return;
+      if(!/^\d+$/.test(topic)||topic==='1364'||states.hiddenIds.includes(topic)||checkedTopics.has(topic)||verified.has(topic))return;
       checkedTopics.add(topic);checked++;
       try{
         const {doc}=await getPage('/viewtopic.php?id='+topic);
@@ -732,13 +811,17 @@
         if(!topic||!section||topic==='1364'||!doc.querySelector('#pun-viewtopic')){
           excluded++;if(pidChecked<=12||pidChecked%30===0)report('— Сообщение #'+source.pid+': нет подтверждённой игровой темы');return;
         }
-        if(verified.has(String(topic)))return;
+        if(verified.has(String(topic))||states.hiddenIds.includes(String(topic)))return;
         // A link to post #pid does NOT mean it was written by this user.
         // Inspect actual author of each post on the returned page.
         const proof=provenUserPost(doc,id);
         if(proof){
           checkedTopics.add(String(topic));
-          acceptEpisode(String(topic),section,doc,proof,'Пост #'+source.pid);
+          // PID часто открывает последнюю страницу темы. Для участников требуется первая.
+          let firstDoc=doc;
+          try{firstDoc=(await getPage('/viewtopic.php?id='+encodeURIComponent(topic))).doc;}
+          catch(e){report('! Не удалось получить первое сообщение темы #'+topic+': '+e.message);}
+          acceptEpisode(String(topic),section,firstDoc,proof,'Пост #'+source.pid);
         }else{
           unverifiedAuthors++;
           if(pidChecked<=12||pidChecked%30===0)report('— Пост #'+source.pid+': на открытой странице нет автора ID='+id);
@@ -846,6 +929,7 @@
               if(overrides[key])ep[key]=existing[key];
             }
             ep.override=overrides;ep.status=defaultStatus(section.id);ep.dateKey=dateInfo(ep.date).key;
+            if(overrides.date)ep.dateUncertain=!ep.date;
             Object.assign(existing,ep);
           }
           existing.detailsError='';
@@ -923,7 +1007,7 @@
     for(const ep of states.items){if(Number(ep.sectionId)===id&&!ep.override?.view){ep.view=el.value;ep.viewUncertain=false;}}
     save();render();showStatus('Распределение раздела #'+id+' изменено.');
   });
-  byId('ssc-download').addEventListener('click',()=>download('safe-space-chronology-'+(states.id||'draft')+'.json',JSON.stringify({version:2,id:states.id,name:states.name,items:states.items,sections:states.sections,theme:byId('ssc-theme').value},null,2),'application/json'));
+  byId('ssc-download').addEventListener('click',()=>download('safe-space-chronology-'+(states.id||'draft')+'.json',JSON.stringify({version:2,id:states.id,name:states.name,items:states.items,sections:states.sections,hiddenIds:states.hiddenIds,theme:byId('ssc-theme').value},null,2),'application/json'));
   byId('ssc-import-btn').addEventListener('click',()=>byId('ssc-import').click());
   byId('ssc-import').addEventListener('change',async e=>{
     const file=e.target.files?.[0];if(!file)return;
@@ -932,7 +1016,8 @@
       if(!data.id||!/^\d+$/.test(String(data.id)))throw new Error('Не указан корректный id');
       states.id=String(data.id);byId('ssc-user').value=states.id;
       states.name=String(data.name||'');
-      states.items=data.items.filter(x=>validSavedItem(x,states.id)).map(x=>correctedEpisode({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,reviewOnly:false,reviewReason:'',override:{...(x.override||{})},status:STATUS[x.status]?x.status:'ongoing'}));
+      states.hiddenIds=[...new Set((Array.isArray(data.hiddenIds)?data.hiddenIds:[]).map(String).filter(v=>/^\d+$/.test(v)))];
+      states.items=data.items.filter(x=>!states.hiddenIds.includes(String(x.id))).filter(x=>validSavedItem(x,states.id)).map(x=>correctedEpisode({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,reviewOnly:false,reviewReason:'',override:{...(x.override||{})},status:STATUS[x.status]?x.status:'ongoing'}));
       states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...(data.sections?.[n]||{}),...SECTION_RULES[n],id:n}]));states.theme=data.theme||'night';renderSections();byId('ssc-theme').value=states.theme;
       save();render();showStatus('Импортировано '+states.items.length+' эпизодов.');
     }catch(err){showStatus('Ошибка импорта: '+err.message);}finally{e.target.value='';}
@@ -941,7 +1026,7 @@
     if(!states.id)return;
     if(!confirm('Удалить сохранённую хронологию персонажа #'+states.id+' только в этом браузере?'))return;
     try{localStorage.removeItem(storageKey(states.id));}catch(e){}
-    states.items=[];render();showStatus('Локальные данные очищены.');
+    states.items=[];states.hiddenIds=[];render();showStatus('Локальные данные очищены.');
   });
   let dragging=null;
   byId('ssc-board').addEventListener('dragstart',e=>{
@@ -979,9 +1064,26 @@
     else{states.items.push({id:'manual-'+Date.now(),...next,manual:true,dateKey:dateInfo(next.date).key,dateUncertain:false,categoryUncertain:false,viewUncertain:false,statusUncertain:false,override:{},sectionName:'вручную',participantsSource:'указаны вручную'});}
     closeEdit();save();render();showStatus('Изменения сохранены в браузере.');
   });
+  function hideEpisode(item){
+    if(!item||!confirm('Убрать «'+item.title+'» из хронологии? Если эпизод найден автоматически, он не вернётся при следующем поиске. На форуме он останется.'))return false;
+    if(!item.manual && /^\d+$/.test(String(item.id)) && !states.hiddenIds.includes(String(item.id)))states.hiddenIds.push(String(item.id));
+    states.items=states.items.filter(x=>x.id!==item.id);
+    save();render();showStatus('Эпизод убран из хронологии. Его можно вернуть через «Вернуть удалённые».');
+    return true;
+  }
   byId('ssc-delete').addEventListener('click',()=>{
-    if(!editingId||!confirm('Убрать этот эпизод из хронологии? Он останется на форуме.'))return;
-    states.items=states.items.filter(x=>x.id!==editingId);closeEdit();save();render();
+    const item=states.items.find(x=>x.id===editingId);
+    if(hideEpisode(item))closeEdit();
+  });
+  byId('ssc-board').addEventListener('click',e=>{
+    const button=e.target.closest('button[data-remove]');if(!button)return;
+    const item=states.items.find(x=>String(x.id)===button.dataset.remove);
+    hideEpisode(item);
+  });
+  byId('ssc-restore-hidden').addEventListener('click',()=>{
+    if(!states.hiddenIds.length)return;
+    if(!confirm('Разрешить повторное добавление '+states.hiddenIds.length+' удалённых эпизодов при следующем поиске?'))return;
+    states.hiddenIds=[];save();render();showStatus('Список исключённых очищен. Нажмите «1. Найти ссылки», чтобы восстановить эпизоды.');
   });
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(byId('ssc-editor').classList.contains('is-open'))closeEdit();else if(!isTargetTopic)overlay.classList.remove('is-open');}});
   // Do not automatically scan; only fetch on an explicit click.
