@@ -1,4 +1,4 @@
-/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v10 · поиск по ID, настоящие заголовки тем.
+/* SAFE SPACE · Хронология персонажа · тема #1364 · GitHub Pages v11 · обязательная проверка авторства каждого эпизода.
    Автосбор работает на https://safespace.rusff.me/ с правами вошедшего пользователя.
    На GitHub Pages доступны ручное редактирование, JSON и HTML-экспорт.
    Не отправляет и не изменяет сообщения, темы или профили форума. */
@@ -24,6 +24,7 @@
   const STATUS = {unknown:'Не определён',ongoing:'В процессе',finished:'Закрыт',abandoned:'Заброшен'};
   const MAX_SEARCH_PAGES = 400;
   const MAX_EPISODES = 4000;
+  const MAX_AUTHOR_CHECK_PAGES = 80; // Тема без проверенного поста пользователя НЕ включается.
   const STORAGE_KEY = 'safe-space-chronology-v2-'; // Preserve existing user edits across versions.
   const LEGACY_KEY = 'safe-space-chronology-v1-';
   const VIEW = {timeline:'Хронология',alternative:'Альтернатива',unfinished:'Незавершённые'};
@@ -132,6 +133,34 @@
     x.category=categoryForSection(x.sectionId, []);
     if(x.override){delete x.override.status;delete x.override.category;}
     return x;
+  }
+  // Strong evidence: a real post by profile ID, not topic title, search hit,
+  // breadcrumb, quote, character mention, or link inside someone else's text.
+  function authorIdOfPost(post) {
+    const uid=String(post.getAttribute('data-user-id')||'').trim();
+    if(/^\d+$/.test(uid))return uid;
+    for(const node of select(post,'.post-author[data-user-id], .post-head[data-user-id], .pa-author[data-user-id]')){
+      const v=String(node.getAttribute('data-user-id')||'').trim();
+      if(/^\d+$/.test(v))return v;
+    }
+    for(const a of select(post,'.post-author a[href*="profile.php"], .pa-author a[href*="profile.php"], .post-author .username a[href*="profile.php"]')){
+      try{
+        const u=new URL(a.getAttribute('href'),forumUrl('/'));
+        if(u.hostname===HOST && /\/profile\.php$/i.test(u.pathname) && /^\d+$/.test(u.searchParams.get('id')||''))return u.searchParams.get('id');
+      }catch(e){}
+    }
+    return '';
+  }
+  function provenUserPost(doc, userId){
+    // Only topic posts, not a user-name mention in the content of another post.
+    for(const post of select(doc,'#pun-viewtopic .post, #pun-main .post')){
+      if(authorIdOfPost(post)===String(userId))return post;
+    }
+    return null;
+  }
+  function proofPostId(post){
+    const match=String(post?.id||'').match(/^p(\d+)$/i);
+    return match ? match[1] : '';
   }
   function parseAuthors(doc) {
     const authors=new Map();
@@ -282,7 +311,8 @@
     for(const value of candidates){const id=topicId(value||'');if(id)return id;}
     const fromForm=doc.querySelector('form[action*="post.php"][action*="tid="]')?.getAttribute('action')||'';
     try{const tid=new URL(fromForm,forumUrl('/')).searchParams.get('tid');if(/^\d+$/.test(tid||''))return tid;}catch(e){}
-    for(const a of select(doc,'#pun-viewtopic .pagelink a[href*="viewtopic.php"], #pun-viewtopic .postlink a[href*="viewtopic.php"], .linkst a[href*="viewtopic.php"], .linksb a[href*="viewtopic.php"], a[href*="viewtopic.php?id="]')){
+    // Only *topic navigation*, not arbitrary links in the content of posts.
+    for(const a of select(doc,'#pun-viewtopic .pagelink a[href*="viewtopic.php"], #pun-viewtopic .paging a[href*="viewtopic.php"], #pun-viewtopic .postlink a[href*="viewtopic.php"]')){
       const id=topicId(a.href);if(id)return id;
     }
     const html=doc.documentElement?.innerHTML||'';
@@ -401,7 +431,7 @@
     </div><div class="ssc-info"><span id="ssc-progress">Готово к сбору</span><span id="ssc-stat">0 эпизодов</span></div>
     <details id="ssc-diagnostic" class="ssc-diagnostic"><summary>Диагностика поиска · почему ссылка не добавлена?</summary><pre id="ssc-diagnostic-report">Для начала нажмите «1. Найти ссылки».</pre><button type="button" class="ssc-btn" id="ssc-copy-report">Копировать отчёт</button></details>
     <div class="ssc-legend" id="ssc-settings">#5, #8 — в процессе · #9 — альтернатива · #17, #18 — закрыты · #19 — закрытая альтернатива · #22 — заброшены</div><div id="ssc-section-rules" hidden></div>
-    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Ошибка чтения шапки не удаляет подтверждённую ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
+    <div class="ssc-content"><p class="ssc-step-note">Шаг 1 сразу показывает подтверждённые ссылки по ID: в список попадают <b>только</b> разделы 5, 8, 9, 17, 18, 19 и 22. Разделы 17/18/19 — «Закрыт», #22 — «Заброшен», #5/#8/#9 — «В процессе». Шаг 2 уточняет даты и участников. Если автор поста не подтверждён, тема не добавляется. Ошибка чтения шапки не удаляет ранее проверенную ссылку.</p><div class="ssc-board" id="ssc-board"></div></div>
     <div class="ssc-export" id="ssc-export"><div class="ssc-exportrow"><strong>Код для форумного сообщения</strong><label>Оформление <select id="ssc-theme"><option value="night">Ночная сирень</option><option value="parchment">Старинный пергамент</option></select></label><label style="display:flex;align-items:center;gap:4px"><input id="ssc-html-tags" type="checkbox" checked> Добавить [html][/html]</label><button id="ssc-copy" type="button" class="ssc-btn ssc-primary">Копировать HTML</button><button id="ssc-download-html" type="button" class="ssc-btn">Скачать HTML</button></div><p class="ssc-exporthint">Финальный блок статичен: его можно вставить в сообщение и он будет работать без скрипта конструктора. Кнопки редактирования в пост не попадают.</p><textarea id="ssc-out" readonly></textarea><div class="ssc-preview" id="ssc-preview"></div></div>
     <div class="ssc-footer">Перетаскивайте эпизоды между тремя разделами или меняйте расположение через меню на карточке. Личные и сюжетные автоматически смешиваются в «Хронологии». Данные сохраняются в этом браузере. <button id="ssc-clear" class="ssc-btn" type="button" style="margin-left:9px;padding:5px 8px">Очистить данные</button></div>
     <div class="ssc-editor" id="ssc-editor"><form class="ssc-editbox" id="ssc-form"><h3 id="ssc-form-title">Эпизод</h3><div class="ssc-fields">
@@ -442,7 +472,7 @@
   const byId=id=>overlay.querySelector('#'+id);
   const storageKey=id=>STORAGE_KEY+id;
   const effectiveView=x=>VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline');
-  const validSavedItem=x=>x&&x.id!=null&&CAT[x.category]&&(x.manual===true || (SECTIONS.includes(Number(x.sectionId)) && /^\d+$/.test(String(x.id))));
+  const validSavedItem=(x,uid)=>x&&x.id!=null&&CAT[x.category]&&(x.manual===true || (SECTIONS.includes(Number(x.sectionId)) && /^\d+$/.test(String(x.id)) && x.verifiedAuthorId===String(uid)));
   const sortItems=a=>a.sort((x,y)=>(x.dateKey||'9999').localeCompare(y.dateKey||'9999') || String(x.title||'').localeCompare(String(y.title||''),'ru'));
   function save(){if(!states.id)return;try{localStorage.setItem(storageKey(states.id),JSON.stringify({id:states.id,items:states.items,name:states.name,sections:states.sections,theme:states.theme}));states.storageError=false;}catch(e){states.storageError=true;if(!states.scanning)showStatus('Не удалось сохранить локально — экспортируйте JSON.');}}
   function restore(id){
@@ -451,7 +481,7 @@
       const raw=localStorage.getItem(storageKey(states.id))||localStorage.getItem(LEGACY_KEY+states.id)||'null';
       const data=JSON.parse(raw);
       if(data&&Array.isArray(data.items)){
-        states.items=data.items.filter(validSavedItem).map(x=>correctedEpisode({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:{...(x.override||{})},reviewOnly:false,reviewReason:'',status:STATUS[x.status]?x.status:'ongoing',statusUncertain:false,dateKey:dateInfo(x.date).key}));
+        states.items=data.items.filter(x=>validSavedItem(x,states.id)).map(x=>correctedEpisode({...x,id:String(x.id),title:String(x.title||'Без названия'),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),override:{...(x.override||{})},reviewOnly:false,reviewReason:'',status:STATUS[x.status]?x.status:'ongoing',statusUncertain:false,dateKey:dateInfo(x.date).key}));
         states.name=/^marauders\s*[:·-]\s*safe space$/i.test(String(data.name||''))?'':(data.name||'');states.sections=data.sections||{};states.theme=data.theme||'night';
       }
     }catch(e){}
@@ -568,7 +598,7 @@
   function makeVerifiedItem(id,source,section) {
     const category=categoryForSection(section.id, []);
     return {id:String(id),title:source?.titleFromTopic?normalize(source.title):('Эпизод #'+id),titleFromTopic:!!source?.titleFromTopic,
-      url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',
+      verifiedAuthorId:String(states.id),url:topicURL(id),date:'',dateKey:'9999-99-99',participants:'',
       category,view:viewForSection(section.id),
       status:defaultStatus(section.id),dateUncertain:true,statusUncertain:false,
       categoryUncertain:false,viewUncertain:false,detailLoaded:false,
@@ -580,10 +610,10 @@
     const old=new Map(states.items.map(x=>[String(x.id),x]));
     for(const [id,source] of found){
       const section=source.section;
-      if(!section||!SECTIONS.includes(Number(section.id)))continue;
+      if(!section||!SECTIONS.includes(Number(section.id))||String(source.verifiedAuthorId)!==String(states.id))continue;
       let x=old.get(String(id));
       if(x){
-        x.sectionId=section.id;x.sectionName=section.label;
+        x.sectionId=section.id;x.sectionName=section.label;x.verifiedAuthorId=String(states.id);
         x.reviewOnly=false;x.reviewReason='';
         x.status=defaultStatus(section.id);
         x.category=categoryForSection(section.id, []);
@@ -616,8 +646,10 @@
     if(!/^\d{1,12}$/.test(id)||Number(id)<1){showStatus('Введите числовой ID игрока из profile.php?id=...');return;}
     if(!isForum()){showStatus('Поиск работает только внутри темы #1364 на форуме Safe Space.');return;}
     if(states.id!==id)restore(id);
+    // v10 added чужие темы: старые неподтверждённые карточки больше нельзя показывать.
+    states.items=states.items.filter(x=>x.manual===true || (x.verifiedAuthorId===id && validSavedItem(x,id)));
     states.errors=[];controller=new AbortController();setBusy(true);
-    let totalPages=0, linkCount=0, checked=0, pidChecked=0, excluded=0, errors=0;
+    let totalPages=0, linkCount=0, checked=0, pidChecked=0, excluded=0, unverifiedAuthors=0, errors=0;
     const verified=new Map(), checkedTopics=new Set(), checkedPids=new Set(), visitedSearch=new Set();
     const events=[];
     const report=(message)=>{
@@ -630,7 +662,8 @@
         'Страниц поиска: '+totalPages,
         'Ссылок в результатах: '+linkCount,
         'Проверено тем: '+checked+', ссылок на сообщения: '+pidChecked,
-        'Подтверждено игровых тем: '+verified.size,
+        'Подтверждено постами автора ID='+id+': '+verified.size,
+        'Отклонено или не удалось подтвердить авторство: '+unverifiedAuthors,
         'Отклонено чужих разделов / неопознанных тем: '+excluded,
         'Ошибок запросов: '+errors,
         '',
@@ -638,6 +671,36 @@
       ].join('\n');
     };
     const advance=(what)=>showStatus(`${what} · ${verified.size} эпизодов найдено · страниц ${totalPages} · ошибок ${errors}`);
+    const acceptEpisode=(topic,section,doc,proof,origin)=>{
+      if(!topic||!section||!proof||topic==='1364'||verified.has(String(topic)))return false;
+      const realTitle=topicTitle(doc,topic);
+      const item={id:String(topic),title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,
+        section,verifiedAuthorId:id,verifiedPostId:proofPostId(proof)};
+      verified.set(String(topic),item);
+      rememberVerified(new Map([[String(topic),item]]));
+      report('✓ '+origin+' · тема #'+topic+' · автор ID='+id+' подтверждён'+(item.verifiedPostId?' (пост #'+item.verifiedPostId+')':'')+' · '+(realTitle||'заголовок недоступен'));
+      advance('Подтверждаю авторов игровых постов');
+      return true;
+    };
+    const inspectTopicPages=async(topic,firstDoc,section)=>{
+      // First topic page is always inspected; later pages only if needed.
+      let proof=provenUserPost(firstDoc,id);
+      if(proof)return {doc:firstDoc,proof,scanned:1,truncated:false};
+      let lastPage=maxPage(firstDoc);
+      let scanned=1;
+      for(let page=2;page<=lastPage&&page<=MAX_AUTHOR_CHECK_PAGES;page++){
+        if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+        const {doc}=await getPage('/viewtopic.php?id='+encodeURIComponent(topic)+'&p='+page);
+        scanned++;
+        lastPage=Math.max(lastPage,maxPage(doc));
+        // Reading subsequent pages cannot change the assigned game section.
+        if(!doc.querySelector('#pun-viewtopic'))continue;
+        proof=provenUserPost(doc,id);
+        if(proof)return {doc,proof,scanned,truncated:false};
+        if(page%10===0)advance('Просматриваю посты темы #'+topic+': страница '+page);
+      }
+      return {doc:null,proof:null,scanned,truncated:lastPage>MAX_AUTHOR_CHECK_PAGES};
+    };
     const verifyTopic=async(source)=>{
       const topic=String(source.id||'');
       if(!/^\d+$/.test(topic)||topic==='1364'||checkedTopics.has(topic)||verified.has(topic))return;
@@ -645,14 +708,19 @@
       try{
         const {doc}=await getPage('/viewtopic.php?id='+topic);
         const section=exactGameSection(doc);
-        if(section && doc.querySelector('#pun-viewtopic')){
-          const realTitle=topicTitle(doc,topic);
-          verified.set(topic,{id:topic,title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,section});
-          rememberVerified(new Map([[topic,verified.get(topic)]]));
-          report('✓ Тема #'+topic+' → раздел #'+section.id+'; название: '+(realTitle||'не удалось прочитать')); 
-          advance('Проверяю игровые темы');
-        }else{excluded++;report('— Тема #'+topic+' не входит в 7 разделов (или не удалось прочитать навигацию)');}
-      }catch(e){errors++;states.errors.push('Тема #'+topic+': '+e.message);report('! Тема #'+topic+': '+e.message);}
+        if(!section || !doc.querySelector('#pun-viewtopic')){
+          excluded++;report('— Тема #'+topic+': вне семи игровых разделов или доступ закрыт');return;
+        }
+        const result=await inspectTopicPages(topic,doc,section);
+        if(result.proof)acceptEpisode(topic,section,doc,result.proof,'Найдена запись игрока');
+        else{
+          excluded++;unverifiedAuthors++;
+          report('— Тема #'+topic+': нет поста автора ID='+id+' на '+result.scanned+' проверенных страницах'+(result.truncated?' (лимит — неполная проверка)':''));
+        }
+      }catch(e){
+        if(e.name==='AbortError')throw e;
+        errors++;states.errors.push('Тема #'+topic+': '+e.message);report('! Тема #'+topic+': '+e.message);
+      }
       if(checked%3===0)await pause(45);
     };
     const verifyPid=async(source)=>{
@@ -661,21 +729,27 @@
       try{
         const {doc,finalUrl}=await getPage(source.url);
         const topic=episodeIdFromPage(doc,finalUrl),section=exactGameSection(doc);
-        if(topic&&section&&topic!=='1364'&&doc.querySelector('#pun-viewtopic')){
-          checkedTopics.add(String(topic));
-          if(!verified.has(String(topic))){
-            const realTitle=topicTitle(doc,topic);
-            const candidate={id:String(topic),title:realTitle||('Эпизод #'+topic),titleFromTopic:!!realTitle,section};
-            verified.set(String(topic),candidate);
-            rememberVerified(new Map([[String(topic),candidate]]));
-            report('✓ Сообщение #'+source.pid+' → тема #'+topic+', раздел #'+section.id+'; название: '+(realTitle||'не удалось прочитать')); 
-            advance('Собираю ссылки на игровые эпизоды');
-          }
-        }else{
-          excluded++;
-          if(pidChecked<=12||pidChecked%30===0)report('— Сообщение #'+source.pid+': игровая тема не подтверждена');
+        if(!topic||!section||topic==='1364'||!doc.querySelector('#pun-viewtopic')){
+          excluded++;if(pidChecked<=12||pidChecked%30===0)report('— Сообщение #'+source.pid+': нет подтверждённой игровой темы');return;
         }
-      }catch(e){errors++;states.errors.push('Сообщение #'+source.pid+': '+e.message);if(errors<=18)report('! Сообщение #'+source.pid+': '+e.message);}
+        if(verified.has(String(topic)))return;
+        // A link to post #pid does NOT mean it was written by this user.
+        // Inspect actual author of each post on the returned page.
+        const proof=provenUserPost(doc,id);
+        if(proof){
+          checkedTopics.add(String(topic));
+          acceptEpisode(String(topic),section,doc,proof,'Пост #'+source.pid);
+        }else{
+          unverifiedAuthors++;
+          if(pidChecked<=12||pidChecked%30===0)report('— Пост #'+source.pid+': на открытой странице нет автора ID='+id);
+          // Do not mark this topic checked: a different linked post/page may
+          // contain the requested author, or a later topic scan may find one.
+        }
+      }catch(e){
+        if(e.name==='AbortError')throw e;
+        errors++;states.errors.push('Сообщение #'+source.pid+': '+e.message);
+        if(errors<=18)report('! Сообщение #'+source.pid+': '+e.message);
+      }
       if(pidChecked%3===0)await pause(45);
     };
     const searchMode=async(initial,mode,label)=>{
@@ -700,17 +774,19 @@
             ('нет ссылок в ответе (возможно, вход в аккаунт, запрет доступа или другой формат поиска); заголовок: '+normalize(result.doc.title||'без заголовка').slice(0,90));
           report('! Поиск не вернул ссылок: '+explanation);
         }
-        // Verify direct topic links first; quickly show progress in the UI.
-        for(const source of x.topics.values()){
-          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
-          if(checkedTopics.size>=MAX_EPISODES)break;
-          await verifyTopic(source);
-        }
-        // A link with ?pid= is a post, not a topic. Resolve it only if necessary.
+        // Explicit post URLs are the quickest way to reach the author's post.
+        // But even an explicit pid must be verified against data-user-id.
         for(const source of x.pids.values()){
           if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
           if(checkedPids.size>=MAX_EPISODES)break;
           await verifyPid(source);
+        }
+        // A direct topic URL is only a candidate. Search all its pages for
+        // an actual post authored by this user before including the episode.
+        for(const source of x.topics.values()){
+          if(controller.signal.aborted)throw new DOMException('Остановлено','AbortError');
+          if(checkedTopics.size>=MAX_EPISODES)break;
+          await verifyTopic(source);
         }
         advance(label);
         if(checkedPids.size>=MAX_EPISODES||checkedTopics.size>=MAX_EPISODES){
@@ -720,7 +796,7 @@
       }
     };
     try{
-      report('Начинаю поиск. Карточки добавляются немедленно после проверки раздела.');
+      report('Начинаю поиск. Карточка появится ТОЛЬКО после нахождения реального поста автора ID='+id+'.');
       // Important: DO NOT search by guessed profile name. A previous version
       // accidentally read the forum's heading "Marauders: safe space" as the
       // player's nickname, producing unrelated results. ID-only endpoints here.
@@ -731,8 +807,8 @@
       // Posts of user also reveal topics started by other players.
       await searchMode(forumUrl('/search.php?action=show_user_posts&user_id='+encodeURIComponent(id)),'show_user_posts','Эпизоды, где персонаж оставлял сообщения');
       rememberVerified(verified);save();render();
-      report('Сканирование закончено. Найдено '+verified.size+' игровых эпизодов.');
-      showStatus('Готово: '+verified.size+' игровых эпизодов · просмотрено '+totalPages+' страниц поиска · отклонено '+excluded+' · ошибки '+errors+'. Подробности — в «Диагностике поиска».');
+      report('Сканирование закончено. Подтверждено '+verified.size+' эпизодов с постами пользователя ID='+id+'.');
+      showStatus('Готово: '+verified.size+' эпизодов с постами ID='+id+' · отклонено '+excluded+' · без подтверждения автора '+unverifiedAuthors+' · ошибки '+errors+'. Диагностика — ниже.');
       if(totalPages>=MAX_SEARCH_PAGES)report('! Достигнут предел страниц; поиск может быть неполным.');
     }catch(e){
       if(e.name==='AbortError'){report('Поиск остановлен вручную; уже найденные эпизоды сохранены.');showStatus('Остановлено · найдено '+verified.size+' эпизодов.');}
@@ -856,7 +932,7 @@
       if(!data.id||!/^\d+$/.test(String(data.id)))throw new Error('Не указан корректный id');
       states.id=String(data.id);byId('ssc-user').value=states.id;
       states.name=String(data.name||'');
-      states.items=data.items.filter(validSavedItem).map(x=>correctedEpisode({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,reviewOnly:false,reviewReason:'',override:{...(x.override||{})},status:STATUS[x.status]?x.status:'ongoing'}));
+      states.items=data.items.filter(x=>validSavedItem(x,states.id)).map(x=>correctedEpisode({...x,id:String(x.id),view:VIEW[x.view]?x.view:(x.category==='alternative'?'alternative':'timeline'),title:String(x.title||'Без названия'),dateKey:dateInfo(x.date).key,reviewOnly:false,reviewReason:'',override:{...(x.override||{})},status:STATUS[x.status]?x.status:'ongoing'}));
       states.sections=Object.fromEntries(SECTIONS.map(n=>[n,{...(data.sections?.[n]||{}),...SECTION_RULES[n],id:n}]));states.theme=data.theme||'night';renderSections();byId('ssc-theme').value=states.theme;
       save();render();showStatus('Импортировано '+states.items.length+' эпизодов.');
     }catch(err){showStatus('Ошибка импорта: '+err.message);}finally{e.target.value='';}
